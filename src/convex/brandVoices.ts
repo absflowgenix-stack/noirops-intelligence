@@ -68,13 +68,15 @@ export const update = mutation({
   handler: async (ctx, args) => {
     const { id, ...fields } = args;
     if (fields.isDefault) {
+      const voice = await ctx.db.get(id);
+      if (!voice) throw new Error("Brand voice not found");
       const existing = await ctx.db
         .query("brandVoices")
-        .withIndex("by_user", (q) => q.eq("userId", (await ctx.db.get(id))!.userId))
+        .withIndex("by_user", (q) => q.eq("userId", voice.userId))
         .collect();
-      for (const voice of existing) {
-        if (voice._id !== id) {
-          await ctx.db.patch(voice._id, { isDefault: false });
+      for (const v of existing) {
+        if (v._id !== id) {
+          await ctx.db.patch(v._id, { isDefault: false });
         }
       }
     }
