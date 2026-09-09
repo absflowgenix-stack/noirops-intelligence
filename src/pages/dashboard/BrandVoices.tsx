@@ -38,6 +38,24 @@ interface BrandVoiceForm {
   exampleContent: string;
 }
 
+interface BrandVoice {
+  _id: string;
+  _creationTime: number;
+  userId: string;
+  name: string;
+  description?: string;
+  industry?: string;
+  targetAudience?: string;
+  tone?: string;
+  personality?: string;
+  coreValues?: string[];
+  productsServices?: string;
+  preferredVocabulary?: string[];
+  wordsToAvoid?: string[];
+  exampleContent?: string;
+  isDefault: boolean;
+}
+
 const EMPTY_FORM: BrandVoiceForm = {
   name: "",
   description: "",
@@ -54,12 +72,12 @@ const EMPTY_FORM: BrandVoiceForm = {
 
 export default function BrandVoices() {
   const { user } = useAuth();
-  const userId = user?.id ?? "";
+  const userId = user?._id ?? "";
 
   const voices = useQuery(
     api.brandVoices.list,
     userId ? { userId } : "skip"
-  );
+  ) as BrandVoice[] | undefined;
   const createVoice = useMutation(api.brandVoices.create);
   const updateVoice = useMutation(api.brandVoices.update);
   const deleteVoice = useMutation(api.brandVoices.remove);
@@ -75,7 +93,7 @@ export default function BrandVoices() {
     setShowDialog(true);
   };
 
-  const openEdit = (voice: (typeof voices extends (infer T)[] ? T : never)) => {
+  const openEdit = (voice: BrandVoice) => {
     setEditingId(voice._id);
     setForm({
       name: voice.name,
@@ -118,7 +136,7 @@ export default function BrandVoices() {
         ? form.wordsToAvoid.split(",").map((v) => v.trim()).filter(Boolean)
         : undefined,
       exampleContent: form.exampleContent.trim() || undefined,
-      isDefault: editingId ? false : voices?.length === 0,
+      isDefault: editingId ? false : (voices?.length ?? 0) === 0,
     };
 
     try {

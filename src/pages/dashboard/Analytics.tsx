@@ -23,6 +23,25 @@ import {
   CartesianGrid,
 } from "recharts";
 
+interface UserStats {
+  totalEvents: number;
+  last7Days: number;
+  last30Days: number;
+  byType: Record<string, number>;
+  dailyActivity: { date: string; count: number }[];
+  generations: number;
+  saves: number;
+  edits: number;
+  calendarItems: number;
+}
+
+interface ActivityEvent {
+  _id: string;
+  _creationTime: number;
+  eventType: string;
+  metadata?: unknown;
+}
+
 function StatCard({
   label,
   value,
@@ -59,22 +78,31 @@ function StatCard({
 
 export default function Analytics() {
   const { user } = useAuth();
-  const userId = user?.id ?? "";
+  const userId = user?._id ?? "";
 
   const stats = useQuery(
     api.analytics.getUserStats,
     userId ? { userId } : "skip"
-  );
+  ) as UserStats | undefined;
   const contentStats = useQuery(
     api.content.stats,
     userId ? { userId } : "skip"
-  );
+  ) as {
+    total: number;
+    drafts: number;
+    scheduled: number;
+    published: number;
+    failed: number;
+    last30Days: number;
+    platforms: Record<string, number>;
+  } | undefined;
   const recentActivity = useQuery(
     api.analytics.getRecentActivity,
     userId ? { userId, limit: 20 } : "skip"
-  );
+  ) as ActivityEvent[] | undefined;
 
-  const chartData = stats?.dailyActivity || [];
+  const chartData: { date: string; count: number }[] =
+    stats?.dailyActivity || [];
 
   const eventTypeLabels: Record<string, string> = {
     generation: "Content Generated",

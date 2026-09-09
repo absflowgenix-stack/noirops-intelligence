@@ -2,6 +2,7 @@ import { useState, useMemo } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import type { Doc } from "@/convex/_generated/dataModel";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -57,7 +58,7 @@ const STATUS_TEXT_COLORS: Record<string, string> = {
 
 export default function Calendar() {
   const { user } = useAuth();
-  const userId = user?.id ?? "";
+  const userId = user?._id ?? "";
 
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
@@ -72,7 +73,7 @@ export default function Calendar() {
   const events = useQuery(
     api.calendarEvents.list,
     userId ? { userId, startDate, endDate } : "skip"
-  );
+  ) as Doc<"calendarEvents">[] | undefined;
   const createEvent = useMutation(api.calendarEvents.create);
   const updateEvent = useMutation(api.calendarEvents.update);
   const deleteEvent = useMutation(api.calendarEvents.remove);
@@ -92,7 +93,7 @@ export default function Calendar() {
 
   const eventsByDate = useMemo(() => {
     if (!events) return {};
-    const map: Record<string, typeof events> = {};
+    const map: Record<string, Doc<"calendarEvents">[]> = {};
     for (const event of events) {
       if (!map[event.date]) map[event.date] = [];
       map[event.date].push(event);

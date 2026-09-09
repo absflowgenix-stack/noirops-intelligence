@@ -57,7 +57,7 @@ export default function ContentHistory() {
   const content = useQuery(
     api.content.list,
     userId ? { userId, limit: 100 } : "skip"
-  );
+  ) as Doc<"content">[] | undefined;
   const deleteContent = useMutation(api.content.remove);
   const duplicateContent = useMutation(api.content.duplicate);
   const updateContent = useMutation(api.content.update);

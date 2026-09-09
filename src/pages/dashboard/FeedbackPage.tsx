@@ -24,6 +24,16 @@ const CATEGORIES = [
   { value: "experience", label: "Experience Rating", icon: Star, color: "text-purple-500" },
 ] as const;
 
+interface FeedbackDoc {
+  _id: string;
+  _creationTime: number;
+  userId?: string;
+  category: string;
+  message: string;
+  rating?: number;
+  page?: string;
+}
+
 export default function FeedbackPage() {
   const { user } = useAuth();
   const userId = user?._id ?? "";
@@ -33,7 +43,7 @@ export default function FeedbackPage() {
   const myFeedback = useQuery(
     api.feedback.listAll,
     userId ? { userId } : "skip"
-  );
+  ) as FeedbackDoc[] | undefined;
 
   const [category, setCategory] = useState<string>("general");
   const [message, setMessage] = useState("");

@@ -1,6 +1,7 @@
 import { useAuth } from "@/hooks/use-auth";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import type { Doc } from "@/convex/_generated/dataModel";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -80,22 +81,39 @@ const STATUS_COLORS: Record<string, string> = {
   failed: "bg-red-500/10 text-red-500 border-red-500/20",
 };
 
+interface ContentStats {
+  total: number;
+  drafts: number;
+  scheduled: number;
+  published: number;
+  failed: number;
+  last30Days: number;
+  platforms: Record<string, number>;
+}
+
+interface ActivityEvent {
+  _id: string;
+  _creationTime: number;
+  eventType: string;
+  metadata?: unknown;
+}
+
 export default function DashboardHome() {
   const { user } = useAuth();
-  const userId = user?.id ?? "";
+  const userId = user?._id ?? "";
 
   const stats = useQuery(
     api.content.stats,
     userId ? { userId } : "skip"
-  );
+  ) as ContentStats | undefined;
   const recentContent = useQuery(
     api.content.list,
     userId ? { userId, limit: 5 } : "skip"
-  );
+  ) as Doc<"content">[] | undefined;
   const recentActivity = useQuery(
     api.analytics.getRecentActivity,
     userId ? { userId, limit: 8 } : "skip"
-  );
+  ) as ActivityEvent[] | undefined;
 
   return (
     <div className="p-6 max-w-6xl mx-auto space-y-6">
@@ -261,12 +279,13 @@ export default function DashboardHome() {
                       <p className="text-xs font-medium">
                         {event.eventType.replace(/_/g, " ")}
                       </p>
-                      {event.metadata && typeof event.metadata === "object" && (
+                      {typeof event.metadata === "object" &&
+                      event.metadata !== null ? (
                         <p className="text-[10px] text-muted-foreground truncate">
                           {(event.metadata as Record<string, string>).detail ||
                             ""}
                         </p>
-                      )}
+                      ) : null}
                     </div>
                     <span className="text-[10px] text-muted-foreground shrink-0">
                       {formatRelativeTime(event._creationTime)}
