@@ -10,6 +10,18 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      // Stub the AI SDK out of the CLIENT bundle. @vly-ai/integrations imports
+      // `ai` / `@ai-sdk/openai-compatible` at module top level, dragging the
+      // whole AI SDK + zod graph into every client build and blowing past the
+      // 4-minute build deadline in this browser runtime. The client never
+      // instantiates VlyAI (only Convex "use node" actions do, on the
+      // server), so these stubs are never called; the screenshot listener
+      // and error reporting keep working.
+      "ai": path.resolve(__dirname, "./src/lib/ai-client-stub.ts"),
+      "@ai-sdk/openai-compatible": path.resolve(
+        __dirname,
+        "./src/lib/openai-compatible-client-stub.ts",
+      ),
     },
     // Force a single copy of React across all packages (including vlyPlugin).
     // Without this, @vly-ai/integrations can resolve its own React copy, which
@@ -56,8 +68,7 @@ export default defineConfig({
           ],
           // Heavy optional libraries - separate chunks for better lazy loading
           'framer-motion': ['framer-motion'],
-          'charts': ['recharts'],
-          'forms': ['react-hook-form', '@hookform/resolvers', 'zod'],
+          'vly-integrations': ['@vly-ai/integrations'],
         },
         // Optimize chunk size
         chunkFileNames: 'assets/[name]-[hash].js',

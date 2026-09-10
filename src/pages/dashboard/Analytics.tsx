@@ -13,15 +13,6 @@ import {
   CalendarDays,
   Clock,
 } from "lucide-react";
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  Tooltip,
-  ResponsiveContainer,
-  CartesianGrid,
-} from "recharts";
 
 interface UserStats {
   totalEvents: number;
@@ -103,6 +94,7 @@ export default function Analytics() {
 
   const chartData: { date: string; count: number }[] =
     stats?.dailyActivity || [];
+  const maxCount = Math.max(...chartData.map((d) => d.count), 1);
 
   const eventTypeLabels: Record<string, string> = {
     generation: "Content Generated",
@@ -153,7 +145,7 @@ export default function Analytics() {
         />
       </div>
 
-      {/* Activity Chart */}
+      {/* Activity Chart (lightweight, dependency-free) */}
       <Card className="border-border/50">
         <CardHeader>
           <CardTitle className="text-sm font-medium">
@@ -176,37 +168,32 @@ export default function Analytics() {
               </p>
             </div>
           ) : (
-            <ResponsiveContainer width="100%" height={200}>
-              <BarChart data={chartData}>
-                <CartesianGrid
-                  strokeDasharray="3 3"
-                  stroke="var(--border)"
-                  opacity={0.5}
-                />
-                <XAxis
-                  dataKey="date"
-                  tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
-                  tickFormatter={(v) => v.slice(5)}
-                />
-                <YAxis
-                  tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
-                  allowDecimals={false}
-                />
-                <Tooltip
-                  contentStyle={{
-                    background: "var(--card)",
-                    border: "1px solid var(--border)",
-                    borderRadius: "8px",
-                    fontSize: "12px",
-                  }}
-                />
-                <Bar
-                  dataKey="count"
-                  fill="var(--primary)"
-                  radius={[4, 4, 0, 0]}
-                />
-              </BarChart>
-            </ResponsiveContainer>
+            <div className="flex items-end gap-1.5 h-[200px] pt-2">
+              {chartData.map((d) => {
+                const barHeight =
+                  d.count === 0
+                    ? 3
+                    : Math.max(4, Math.round((d.count / maxCount) * 120));
+                return (
+                  <div
+                    key={d.date}
+                    className="flex-1 flex flex-col items-center justify-end gap-1 min-w-0 h-full"
+                  >
+                    <span className="text-[9px] text-muted-foreground tabular-nums">
+                      {d.count}
+                    </span>
+                    <div
+                      className="w-full max-w-[34px] rounded-t-[4px] bg-primary/70 hover:bg-primary transition-colors cursor-pointer"
+                      style={{ height: `${barHeight}px` }}
+                      title={`${d.date}: ${d.count} events`}
+                    />
+                    <span className="text-[10px] text-muted-foreground pb-1">
+                      {d.date.slice(5)}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
           )}
         </CardContent>
       </Card>

@@ -88,7 +88,7 @@ export default function CreateContent() {
   const [repurposePlatform, setRepurposePlatform] = useState("");
   const [calendarDays, setCalendarDays] = useState(7);
 
-  const userId = user?.id ?? "";
+  const userId = user?._id ?? "";
 
   const handleGenerate = async () => {
     if (!topic.trim()) {
