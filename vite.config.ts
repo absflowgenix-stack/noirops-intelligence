@@ -12,9 +12,9 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
       // Stub the AI SDK out of the CLIENT bundle. @vly-ai/integrations imports
       // `ai` / `@ai-sdk/openai-compatible` at module top level, dragging the
-      // whole AI SDK + zod graph into every client build and blowing past the
-      // 4-minute build deadline in this browser runtime. The client never
-      // instantiates VlyAI (only Convex "use node" actions do, on the
+      // whole AI SDK + zod module graph into every client build and blowing
+      // past the 4-minute build deadline in this browser runtime. The client
+      // never instantiates VlyAI (only Convex "use node" actions do, on the
       // server), so these stubs are never called; the screenshot listener
       // and error reporting keep working.
       "ai": path.resolve(__dirname, "./src/lib/ai-client-stub.ts"),
@@ -82,21 +82,6 @@ export default defineConfig({
     target: 'esnext',
     // Minify options - using esbuild (faster than terser)
     minify: 'esbuild',
-  },
-  // Optimize dependencies
-  optimizeDeps: {
-    // Only scan the app entry HTML; avoids crawling unrelated *.html files
-    // if a legacy snapshot accidentally contains leaked package folders.
-    entries: ['index.html'],
-    include: [
-      'react',
-      'react/jsx-runtime',
-      'react-dom',
-      'react-dom/client',
-      'react-router',
-      '@convex-dev/auth/react',
-      'framer-motion',
-    ],
   },
   // Performance hints
   server: {
