@@ -93,14 +93,17 @@ const schema = defineSchema(
     }).index("by_user", ["userId"]),
 
     // ── Analytics ────────────────────────────────────────
+    // No index on _creationTime: Convex rejects custom indexes that include it
+    // (it ships a built-in `by_creation_time` index, and the push fails with
+    // IndexFieldsContainCreationTime), and the queries below only need the
+    // user-scoped indexes.
     analyticsEvents: defineTable({
       userId: v.string(),
       eventType: v.string(),
       metadata: v.optional(v.any()),
     })
       .index("by_user", ["userId"])
-      .index("by_user_type", ["userId", "eventType"])
-      .index("by_user_date", ["userId", "_creationTime"]),
+      .index("by_user_type", ["userId", "eventType"]),
 
     // ── Feedback ─────────────────────────────────────────
     feedback: defineTable({
