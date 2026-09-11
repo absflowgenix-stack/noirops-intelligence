@@ -10,14 +10,14 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
-      // Stub the AI SDK out of the CLIENT bundle. vlyPlugin() injects
-      // `import '@vly-ai/integrations';` into every page, and that module
-      // imports `ai` / `@ai-sdk/openai-compatible` at top level — dragging
-      // the whole AI SDK + zod module graph into every client build and
-      // blowing past the build deadline in this browser runtime. The client
-      // never instantiates VlyAI (only Convex "use node" actions do, on the
-      // server), so these stubs are never called; the screenshot listener
-      // and error reporting keep working.
+      // vlyPlugin() injects `import '@vly-ai/integrations';` into every page,
+      // and that module imports the Vercel AI SDK (`ai`) and
+      // `@ai-sdk/openai-compatible` at the top level. That dragged the whole
+      // AI SDK + zod module graph into the client bundle and blew past the
+      // production build deadline in this runtime. Nothing on the client
+      // instantiates VlyAI (AI runs in Convex "use node" actions, server-side),
+      // so these tiny stubs satisfy the named imports and let Rollup drop the
+      // rest. The screenshot listener and error reporting are unaffected.
       "ai": path.resolve(__dirname, "./src/lib/ai-client-stub.ts"),
       "@ai-sdk/openai-compatible": path.resolve(
         __dirname,
