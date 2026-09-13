@@ -1,29 +1,33 @@
-/**
- * Client-side stub for the Vercel AI SDK (`ai`).
- *
- * `@vly-ai/integrations` imports `ai` at module top level, which drags the
- * entire AI SDK + zod module graph into every client bundle and blows past
- * the production build deadline in this browser runtime. The client never
- * instantiates `VlyAI` (only Convex "use node" actions do, on the server),
- * so these stubs are never called — they only need to satisfy the named
- * imports so Rollup can tree-shake the rest.
- */
-
-export async function generateText(): Promise<unknown> {
-  return {
-    text: "",
-    finishReason: "stop",
-    usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
-  };
-}
-
-export async function streamText(): Promise<unknown> {
-  return {
-    textStream: (async function* () {})(),
-    usage: Promise.resolve({
-      inputTokens: 0,
-      outputTokens: 0,
-      totalTokens: 0,
-    }),
-  };
-}
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://noiroops.com/</loc>
+    <lastmod>2026-01-01</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+  <url>
+    <loc>https://noiroops.com/about</loc>
+    <lastmod>2026-01-01</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://noiroops.com/contact</loc>
+    <lastmod>2026-01-01</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://noiroops.com/privacy</loc>
+    <lastmod>2026-01-01</lastmod>
+    <changefreq>yearly</changefreq>
+    <priority>0.5</priority>
+  </url>
+  <url>
+    <loc>https://noiroops.com/terms</loc>
+    <lastmod>2026-01-01</lastmod>
+    <changefreq>yearly</changefreq>
+    <priority>0.5</priority>
+  </url>
+</urlset>
