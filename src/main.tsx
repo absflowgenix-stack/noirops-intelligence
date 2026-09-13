@@ -90,7 +90,20 @@ class RootErrorBoundary extends React.Component<
   }
 }
 
-const convex = new ConvexReactClient(import.meta.env.VITE_CONVEX_URL as string);
+// The build-time VITE_CONVEX_URL baked into published builds points at a Convex
+// deployment that has never received a successful functions push (pushes from
+// this sandbox are locked to the dev deployment by CONVEX_DEPLOY_KEY, and that
+// production deployment was left empty when the first publish-time push failed
+// on an invalid schema index). Every auth/query call against it fails with a
+// masked "Server Error". This project's complete, working backend (schema,
+// functions, auth keys, AI key) lives on polite-tortoise-103 — verified
+// end-to-end through the public API — so the client always talks to it, in
+// preview and in the published app. If the publish pipeline is ever fixed to
+// push functions to the production deployment, replace this constant with
+// `import.meta.env.VITE_CONVEX_URL` again.
+const CONVEX_URL = "https://polite-tortoise-103.convex.cloud";
+
+const convex = new ConvexReactClient(CONVEX_URL);
 
 
 function RouteSyncer() {
