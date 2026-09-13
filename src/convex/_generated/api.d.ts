@@ -15,11 +15,11 @@ import type * as auth_emailOtp from "../auth/emailOtp.js";
 import type * as brandVoices from "../brandVoices.js";
 import type * as calendarEvents from "../calendarEvents.js";
 import type * as content from "../content.js";
-import type * as debugDiag from "../debugDiag.js";
 import type * as feedback from "../feedback.js";
 import type * as http from "../http.js";
 import type * as settings from "../settings.js";
 import type * as users from "../users.js";
+import type * as videoClips from "../videoClips.js";
 
 import type {
   ApiFromModules,
@@ -35,11 +35,11 @@ declare const fullApi: ApiFromModules<{
   brandVoices: typeof brandVoices;
   calendarEvents: typeof calendarEvents;
   content: typeof content;
-  debugDiag: typeof debugDiag;
   feedback: typeof feedback;
   http: typeof http;
   settings: typeof settings;
   users: typeof users;
+  videoClips: typeof videoClips;
 }>;
 
 /**
