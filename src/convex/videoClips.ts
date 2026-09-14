@@ -12,6 +12,8 @@ export const createSource = mutation({
     platform: v.optional(v.string()),
     videoId: v.optional(v.string()),
     storageId: v.optional(v.id("_storage")),
+    fileSizeBytes: v.optional(v.number()),
+    mimeType: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     return await ctx.db.insert("videoSources", {
@@ -164,7 +166,60 @@ export const deleteClip = mutation({
   },
 });
 
-// ── Internals (used by the videoClipping action) ─────────
+// ── Local upload audio pipeline (additive) ────────────────
+
+/** Short-lived upload URL for one audio chunk (client POSTs the WAV blob). */
+export const generateUploadUrl = mutation({
+  args: {},
+  handler: async (ctx) => {
+    return await ctx.storage.generateUploadUrl();
+  },
+});
+
+/** Attach uploaded audio chunk storage ids + file metadata to a source. */
+export const attachSourceAudio = mutation({
+  args: {
+    sourceId: v.id("videoSources"),
+    audioStorageIds: v.array(v.id("_storage")),
+    durationSec: v.optional(v.number()),
+    fileSizeBytes: v.optional(v.number()),
+    mimeType: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const { sourceId, ...patch } = args;
+    await ctx.db.patch(sourceId, patch);
+  },
+});
+
+/** Temporary URL for one stored audio chunk (actions fetch it to transcribe). */
+export const getStorageUrl = query({
+  args: { storageId: v.id("_storage") },
+  handler: async (ctx, args) => {
+    return await ctx.storage.getUrl(args.storageId);
+  },
+});
+
+/** Enrich a source with platform-link metadata (oEmbed / captions). */
+export const patchSourceMeta = mutation({
+  args: {
+    sourceId: v.id("videoSources"),
+    title: v.optional(v.string()),
+    thumbnailUrl: v.optional(v.string()),
+    authorName: v.optional(v.string()),
+    durationSec: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const { sourceId, ...patch } = args;
+    const clean = Object.fromEntries(
+      Object.entries(patch).filter(([, value]) => value !== undefined && value !== null && value !== ""),
+    );
+    if (Object.keys(clean).length > 0) {
+      await ctx.db.patch(sourceId, clean);
+    }
+  },
+});
+
+// ── Internals (used by the clipping/transcription actions) ──
 
 export const markSourceReadyInternal = internalMutation({
   args: {
@@ -191,6 +246,25 @@ export const markSourceFailedInternal = internalMutation({
       status: "failed" as const,
       errorMessage: args.errorMessage.slice(0, 500),
     });
+  },
+});
+
+export const patchSourceMetaInternal = internalMutation({
+  args: {
+    sourceId: v.id("videoSources"),
+    title: v.optional(v.string()),
+    thumbnailUrl: v.optional(v.string()),
+    authorName: v.optional(v.string()),
+    durationSec: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const { sourceId, ...patch } = args;
+    const clean = Object.fromEntries(
+      Object.entries(patch).filter(([, value]) => value !== undefined && value !== null && value !== ""),
+    );
+    if (Object.keys(clean).length > 0) {
+      await ctx.db.patch(sourceId, clean);
+    }
   },
 });
 

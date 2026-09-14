@@ -10,6 +10,7 @@
 
 import type * as ai from "../ai.js";
 import type * as analytics from "../analytics.js";
+import type * as audioTranscribe from "../audioTranscribe.js";
 import type * as auth from "../auth.js";
 import type * as auth_emailOtp from "../auth/emailOtp.js";
 import type * as brandVoices from "../brandVoices.js";
@@ -17,6 +18,7 @@ import type * as calendarEvents from "../calendarEvents.js";
 import type * as content from "../content.js";
 import type * as feedback from "../feedback.js";
 import type * as http from "../http.js";
+import type * as platformIngest from "../platformIngest.js";
 import type * as settings from "../settings.js";
 import type * as users from "../users.js";
 import type * as videoClipping from "../videoClipping.js";
@@ -31,6 +33,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   ai: typeof ai;
   analytics: typeof analytics;
+  audioTranscribe: typeof audioTranscribe;
   auth: typeof auth;
   "auth/emailOtp": typeof auth_emailOtp;
   brandVoices: typeof brandVoices;
@@ -38,6 +41,7 @@ declare const fullApi: ApiFromModules<{
   content: typeof content;
   feedback: typeof feedback;
   http: typeof http;
+  platformIngest: typeof platformIngest;
   settings: typeof settings;
   users: typeof users;
   videoClipping: typeof videoClipping;
