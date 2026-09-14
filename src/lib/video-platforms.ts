@@ -1,6 +1,9 @@
 /**
  * Video platform helpers for the AI clipping feature.
- * Pure TypeScript — safe to import in the browser and in unit tests.
+ * Pure TypeScript — safe to import in the browser, in Convex actions and in unit tests.
+ * Exports: VIDEO_PLATFORMS, detectPlatform, extractVideoId, formatDuration,
+ * formatTimecode, EDIT_TYPES, TRANSITIONS, MOMENT_TYPES, momentTypeStyle,
+ * momentTypeLabel, scoreTone, CLIP_TARGET_PLATFORMS.
  */
 
 export interface VideoPlatform {

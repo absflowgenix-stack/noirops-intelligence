@@ -24,6 +24,8 @@ import {
   Trash2,
   Film,
   AlertCircle,
+  Video,
+  Wand2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -33,9 +35,17 @@ import {
   formatTimecode,
 } from "@/lib/video-platforms";
 import { transcriptFormat } from "@/lib/transcript";
+import { prepareAudioChunks } from "@/lib/audio";
 import { ClipCard } from "@/components/clips/ClipCard";
 
-type InputMode = "link" | "upload" | "transcript";
+type InputMode = "link" | "video" | "upload" | "transcript";
+
+type VideoStage =
+  | "idle"
+  | "decoding"
+  | "uploading"
+  | "transcribing"
+  | "analyzing";
 
 const SOURCE_STATUS_STYLES: Record<string, string> = {
   pending: "bg-amber-500/10 text-amber-500 border-amber-500/20",
@@ -43,6 +53,9 @@ const SOURCE_STATUS_STYLES: Record<string, string> = {
   ready: "bg-emerald-500/10 text-emerald-500 border-emerald-500/20",
   failed: "bg-red-500/10 text-red-500 border-red-500/20",
 };
+
+/** Hard safety cap: decoding multi-GB files in the browser can exhaust memory. */
+const MAX_VIDEO_BYTES = 1024 * 1024 * 1024; // 1 GB
 
 export default function AIVideoClipping() {
   const { user } = useAuth();
@@ -52,7 +65,11 @@ export default function AIVideoClipping() {
   const deleteSource = useMutation(api.videoClips.deleteSource);
   const updateClipStatus = useMutation(api.videoClips.updateClipStatus);
   const createDraft = useMutation(api.content.create);
+  const generateUploadUrl = useMutation(api.videoClips.generateUploadUrl);
+  const attachSourceAudio = useMutation(api.videoClips.attachSourceAudio);
   const analyze = useAction(api.videoClipping.analyzeSource);
+  const transcribe = useAction(api.audioTranscribe.transcribeFromStorage);
+  const enrichLink = useAction(api.platformIngest.enrichLinkSource);
 
   // ── Input state ──────────────────────────────────────────
   const [mode, setMode] = useState<InputMode>("link");
@@ -62,7 +79,11 @@ export default function AIVideoClipping() {
   const [transcriptText, setTranscriptText] = useState("");
   const [focusTopic, setFocusTopic] = useState("");
   const [uploadedName, setUploadedName] = useState<string | null>(null);
+  const [videoFile, setVideoFile] = useState<File | null>(null);
+  const [videoStage, setVideoStage] = useState<VideoStage>("idle");
+  const [videoProgress, setVideoProgress] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const videoInputRef = useRef<HTMLInputElement>(null);
 
   // ── Flow state ───────────────────────────────────────────
   const [activeSourceId, setActiveSourceId] = useState<Id<"videoSources"> | null>(null);
@@ -90,15 +111,19 @@ export default function AIVideoClipping() {
     () => (transcriptText.trim() ? transcriptFormat(transcriptText) : null),
     [transcriptText]
   );
-  const busy = stage !== "idle";
+  const busy = stage !== "idle" || videoStage !== "idle";
 
   const canAnalyze =
     !!userId &&
     !busy &&
-    transcriptText.trim().length > 40 &&
-    (mode !== "link" || !!linkUrl.trim());
+    (mode === "video"
+      ? !!videoFile
+      : mode === "link"
+        ? !!linkUrl.trim()
+        : transcriptText.trim().length > 40 &&
+          (mode !== "upload" || !!uploadedName));
 
-  // ── Handlers ─────────────────────────────────────────────
+  // ── Handlers: transcript file ────────────────────────────
   const handleFile = async (file: File) => {
     if (file.size > 5 * 1024 * 1024) {
       toast.error("Transcript file is too large (max 5 MB).");
@@ -113,6 +138,87 @@ export default function AIVideoClipping() {
     toast.success(`Loaded ${file.name}`);
   };
 
+  // ── Handlers: video file ─────────────────────────────────
+  const handleVideoFile = (file: File) => {
+    if (file.size > MAX_VIDEO_BYTES) {
+      toast.error("Video is too large for in-browser transcription (max 1 GB). Trim it or use a link.");
+      return;
+    }
+    setVideoFile(file);
+    if (!title.trim()) {
+      setTitle(file.name.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " "));
+    }
+  };
+
+  /**
+   * Local video flow: create source → extract + chunk audio in the browser →
+   * upload WAV parts → server-side Whisper transcription → AI clipping.
+   */
+  const handleVideoAnalyze = async () => {
+    if (!userId || !videoFile) return;
+    try {
+      setVideoStage("decoding");
+      setVideoProgress(8);
+      const { chunks, durationSec } = await prepareAudioChunks(videoFile);
+
+      setVideoStage("uploading");
+      setVideoProgress(20);
+      const storageIds: Id<"_storage">[] = [];
+      const chunkStarts: number[] = [];
+      for (let i = 0; i < chunks.length; i++) {
+        const uploadUrl = await generateUploadUrl({});
+        const res = await fetch(uploadUrl, {
+          method: "POST",
+          headers: { "Content-Type": "audio/wav" },
+          body: chunks[i].blob,
+        });
+        if (!res.ok) throw new Error(`Audio upload failed (${res.status}).`);
+        const { storageId } = (await res.json()) as { storageId: string };
+        storageIds.push(storageId as Id<"_storage">);
+        chunkStarts.push(chunks[i].startSec);
+        setVideoProgress(20 + Math.round(((i + 1) / chunks.length) * 40));
+      }
+
+      const sourceId = await createSource({
+        userId,
+        title: title.trim() || videoFile.name.replace(/\.[^.]+$/, ""),
+        sourceKind: "upload",
+        fileSizeBytes: videoFile.size,
+        mimeType: videoFile.type || "video/*",
+      });
+      await attachSourceAudio({
+        sourceId,
+        audioStorageIds: storageIds,
+        durationSec,
+        fileSizeBytes: videoFile.size,
+        mimeType: videoFile.type || undefined,
+      });
+
+      setVideoStage("transcribing");
+      setVideoProgress(65);
+      await transcribe({
+        sourceId,
+        audioStorageIds: storageIds,
+        chunkStarts,
+        focusTopic: focusTopic.trim() || undefined,
+      });
+
+      setVideoProgress(100);
+      toast.success("Transcription + analysis complete — clips are ready.");
+      setActiveSourceId(sourceId);
+      setVideoStage("idle");
+      setVideoProgress(0);
+    } catch (err) {
+      setVideoStage("idle");
+      setVideoProgress(0);
+      const message = err instanceof Error ? err.message : "Video analysis failed";
+      toast.error(message.slice(0, 200), {
+        description: "Try a smaller file, or paste an SRT transcript instead.",
+      });
+    }
+  };
+
+  // ── Handlers: transcript / link ──────────────────────────
   const reset = () => {
     setActiveSourceId(null);
     setStage("idle");
@@ -123,10 +229,72 @@ export default function AIVideoClipping() {
     setTranscriptText("");
     setFocusTopic("");
     setUploadedName(null);
+    setVideoFile(null);
+    setVideoStage("idle");
+    setVideoProgress(0);
   };
 
   const handleAnalyze = async () => {
-    if (!canAnalyze) return;
+    if (!canAnalyze || busy) return;
+
+    // ── Video file flow (separate progress pipeline) ───────
+    if (mode === "video") {
+      await handleVideoAnalyze();
+      return;
+    }
+
+    // ── Link flow ───────────────────────────────────────────
+    if (mode === "link") {
+      const url = linkUrl.trim();
+      const finalTitle =
+        title.trim() || (detected?.name && detected.id !== "link" ? `${detected.name} video` : "Untitled video");
+      try {
+        setStage("creating");
+        const sourceId = await createSource({
+          userId,
+          title: finalTitle,
+          sourceKind: "link",
+          url,
+          platform: detected && detected.id !== "link" ? detected.id : undefined,
+          videoId: detected?.videoId,
+        });
+
+        // A pasted transcript (if any) takes priority; otherwise try to pull
+        // captions automatically and enrich with platform metadata.
+        if (tFormat && tFormat !== "plain" && transcriptText.trim().length > 40) {
+          setStage("analyzing");
+          await analyze({
+            sourceId,
+            transcriptText: transcriptText.trim(),
+            durationSec: Number(durationInput) > 0 ? Number(durationInput) : undefined,
+            focusTopic: focusTopic.trim() || undefined,
+          });
+          toast.success("Analysis complete — clips are ready below.");
+        } else {
+          setStage("analyzing");
+          const result = await enrichLink({
+            sourceId,
+            url,
+            focusTopic: focusTopic.trim() || undefined,
+            autoAnalyze: true,
+          });
+          if (result.transcriptFound) {
+            toast.success(result.message);
+          } else {
+            toast(result.message, { description: "The link was enriched with platform metadata." });
+          }
+        }
+        setActiveSourceId(sourceId);
+        setStage("idle");
+      } catch (err) {
+        setStage("idle");
+        const message = err instanceof Error ? err.message : "Analysis failed";
+        toast.error(message.slice(0, 200));
+      }
+      return;
+    }
+
+    // ── Transcript paste / transcript-file flow (unchanged) ──
     if (tFormat === "plain") {
       toast.error(
         "This transcript has no timestamps. Paste an SRT or VTT transcript (with timecodes) so clips can be located in the video."
@@ -139,9 +307,7 @@ export default function AIVideoClipping() {
       title.trim() ||
       (mode === "upload" && uploadedName
         ? uploadedName.replace(/\.(srt|vtt|txt)$/i, "")
-        : detected?.name
-          ? `${detected.name} video`
-          : "Untitled video");
+        : "Untitled video");
     const durationSec = Number(durationInput) > 0 ? Number(durationInput) : undefined;
 
     try {
@@ -149,8 +315,7 @@ export default function AIVideoClipping() {
       const sourceId = await createSource({
         userId,
         title: finalTitle,
-        sourceKind: mode === "upload" ? "upload" : mode === "link" ? "link" : "transcript",
-        url: mode === "link" && linkUrl.trim() ? linkUrl.trim() : undefined,
+        sourceKind: mode === "upload" ? "upload" : "transcript",
         platform: detected && detected.id !== "link" ? detected.id : undefined,
       });
 
@@ -207,6 +372,14 @@ export default function AIVideoClipping() {
     } catch {
       toast.error("Could not delete the source.");
     }
+  };
+
+  const VIDEO_STAGE_LABELS: Record<VideoStage, string> = {
+    idle: "",
+    decoding: "Extracting & chunking audio in your browser...",
+    uploading: "Uploading audio chunks...",
+    transcribing: "Transcribing with AI (Whisper)...",
+    analyzing: "Finding the best moments...",
   };
 
   // ── Results view ─────────────────────────────────────────
@@ -315,9 +488,9 @@ export default function AIVideoClipping() {
           </Badge>
         </div>
         <p className="text-muted-foreground text-sm mt-1">
-          Turn long-form video into publish-ready shorts. Paste a link, upload a transcript file,
-          or drop in a transcript — the AI finds the strongest moments and suggests edits and
-          transitions.
+          Turn long-form video into publish-ready shorts. Upload a video from your device, paste a
+          link from any major platform, or bring a transcript — the AI finds the strongest moments
+          and suggests edits and transitions.
         </p>
       </div>
 
@@ -326,12 +499,15 @@ export default function AIVideoClipping() {
         <CardContent className="p-5 space-y-4">
           {/* Mode tabs */}
           <Tabs value={mode} onValueChange={(v) => setMode(v as InputMode)}>
-            <TabsList className="grid grid-cols-3 w-full max-w-md">
+            <TabsList className="grid grid-cols-4 w-full">
               <TabsTrigger value="link" className="gap-1.5 cursor-pointer text-xs">
-                <Link2 className="h-3.5 w-3.5" /> Video link
+                <Link2 className="h-3.5 w-3.5" /> Link
+              </TabsTrigger>
+              <TabsTrigger value="video" className="gap-1.5 cursor-pointer text-xs">
+                <Video className="h-3.5 w-3.5" /> Video
               </TabsTrigger>
               <TabsTrigger value="upload" className="gap-1.5 cursor-pointer text-xs">
-                <Upload className="h-3.5 w-3.5" /> Transcript file
+                <Upload className="h-3.5 w-3.5" /> SRT file
               </TabsTrigger>
               <TabsTrigger value="transcript" className="gap-1.5 cursor-pointer text-xs">
                 <FileText className="h-3.5 w-3.5" /> Paste
@@ -350,19 +526,21 @@ export default function AIVideoClipping() {
                 className="text-sm"
               />
             </div>
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-muted-foreground">
-                Duration in seconds <span className="text-muted-foreground/60">(optional)</span>
-              </label>
-              <Input
-                type="number"
-                min={0}
-                placeholder="Auto-detected from transcript"
-                value={durationInput}
-                onChange={(e) => setDurationInput(e.target.value)}
-                className="text-sm"
-              />
-            </div>
+            {mode !== "video" && (
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-muted-foreground">
+                  Duration in seconds <span className="text-muted-foreground/60">(optional)</span>
+                </label>
+                <Input
+                  type="number"
+                  min={0}
+                  placeholder="Auto-detected when possible"
+                  value={durationInput}
+                  onChange={(e) => setDurationInput(e.target.value)}
+                  className="text-sm"
+                />
+              </div>
+            )}
           </div>
 
           {/* Link input with live detection */}
@@ -389,14 +567,63 @@ export default function AIVideoClipping() {
                   </Badge>
                 )}
               </div>
-              <p className="text-[11px] text-muted-foreground">
-                The platform can&apos;t download video directly — paste the transcript below
-                (YouTube auto-captions can be copied from the transcript panel).
+              <p className="text-[11px] text-muted-foreground flex items-start gap-1">
+                <Wand2 className="h-3 w-3 mt-0.5 shrink-0 text-primary/70" />
+                YouTube links are transcribed automatically from public captions. Other platforms
+                are enriched with metadata — add their transcript below or use the Video tab.
               </p>
             </div>
           )}
 
-          {/* Upload input */}
+          {/* Video file input */}
+          {mode === "video" && (
+            <div className="space-y-1.5">
+              <div
+                className="border border-dashed border-border/70 rounded-md p-6 text-center cursor-pointer hover:border-primary/40 hover:bg-muted/30 transition-colors"
+                onClick={() => videoInputRef.current?.click()}
+              >
+                <input
+                  ref={videoInputRef}
+                  type="file"
+                  accept="video/*,audio/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) handleVideoFile(f);
+                  }}
+                />
+                {videoFile ? (
+                  <div className="flex items-center justify-center gap-2 text-sm">
+                    <Check className="h-4 w-4 text-emerald-500" />
+                    <span className="font-medium truncate max-w-[320px]">{videoFile.name}</span>
+                    <span className="text-muted-foreground text-xs shrink-0">
+                      ({(videoFile.size / (1024 * 1024)).toFixed(1)} MB) — click to replace
+                    </span>
+                  </div>
+                ) : (
+                  <div className="space-y-1">
+                    <Video className="h-5 w-5 text-muted-foreground mx-auto" />
+                    <p className="text-sm font-medium">Upload a video or audio file</p>
+                    <p className="text-xs text-muted-foreground">
+                      MP4, MOV, WebM, MP3, WAV... Audio is extracted in your browser and
+                      transcribed with AI. Max 1 GB.
+                    </p>
+                  </div>
+                )}
+              </div>
+              {videoStage !== "idle" && (
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    {VIDEO_STAGE_LABELS[videoStage]}
+                  </div>
+                  <Progress value={videoProgress} className="h-1.5" aria-label="Video processing" />
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Transcript file (SRT/VTT/TXT) upload */}
           {mode === "upload" && (
             <div
               className="border border-dashed border-border/70 rounded-md p-6 text-center cursor-pointer hover:border-primary/40 hover:bg-muted/30 transition-colors"
@@ -430,40 +657,47 @@ export default function AIVideoClipping() {
             </div>
           )}
 
-          {/* Transcript */}
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-medium text-muted-foreground">
-                Transcript {mode === "upload" && uploadedName ? "(loaded from file)" : ""}
-              </label>
-              {tFormat && (
-                <Badge variant="outline" className="text-[10px]">
-                  {tFormat === "srt"
-                    ? "SRT detected"
-                    : tFormat === "vtt"
-                      ? "WebVTT detected"
-                      : "Plain text — needs timecodes"}
-                </Badge>
+          {/* Transcript paste (link / upload / transcript modes) */}
+          {mode !== "video" && (
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-medium text-muted-foreground">
+                  Transcript{" "}
+                  {mode === "upload" && uploadedName
+                    ? "(loaded from file)"
+                    : mode === "link"
+                      ? " (optional — auto-pulled for YouTube)"
+                      : ""}
+                </label>
+                {tFormat && (
+                  <Badge variant="outline" className="text-[10px]">
+                    {tFormat === "srt"
+                      ? "SRT detected"
+                      : tFormat === "vtt"
+                        ? "WebVTT detected"
+                        : "Plain text — needs timecodes"}
+                  </Badge>
+                )}
+              </div>
+              <Textarea
+                placeholder={
+                  "1\n00:00:00,000 --> 00:00:12,000\nWelcome back to the show...\n\n2\n00:00:12,000 --> 00:00:30,000\nToday we're talking about..."
+                }
+                value={transcriptText}
+                onChange={(e) => {
+                  setTranscriptText(e.target.value);
+                  setUploadedName(null);
+                }}
+                className="min-h-[160px] font-mono text-xs leading-relaxed"
+              />
+              {transcriptText.trim() && (
+                <p className="text-[11px] text-muted-foreground">
+                  {transcriptText.trim().split(/\s+/).length.toLocaleString()} words
+                  {tFormat === "plain" ? " — paste timecoded SRT/VTT for timed clips" : ""}
+                </p>
               )}
             </div>
-            <Textarea
-              placeholder={
-                "1\n00:00:00,000 --> 00:00:12,000\nWelcome back to the show...\n\n2\n00:00:12,000 --> 00:00:30,000\nToday we're talking about..."
-              }
-              value={transcriptText}
-              onChange={(e) => {
-                setTranscriptText(e.target.value);
-                setUploadedName(null);
-              }}
-              className="min-h-[180px] font-mono text-xs leading-relaxed"
-            />
-            {transcriptText.trim() && (
-              <p className="text-[11px] text-muted-foreground">
-                {transcriptText.trim().split(/\s+/).length.toLocaleString()} words
-                {tFormat === "plain" ? " — paste timecoded SRT/VTT for timed clips" : ""}
-              </p>
-            )}
-          </div>
+          )}
 
           {/* Focus topic */}
           <div className="space-y-1.5">
@@ -481,9 +715,13 @@ export default function AIVideoClipping() {
           {/* Action */}
           <div className="flex items-center justify-between gap-3 pt-1">
             <p className="text-[11px] text-muted-foreground">
-              {tFormat === "plain"
-                ? "Add timecoded SRT/VTT text to enable clipping."
-                : "The AI returns up to 8 ranked, non-overlapping clips."}
+              {mode === "video"
+                ? "Transcription runs on chunked audio; long videos are fully supported."
+                : mode === "link"
+                  ? "YouTube captions are fetched automatically; other platforms need a transcript or upload."
+                  : tFormat === "plain"
+                    ? "Add timecoded SRT/VTT text to enable clipping."
+                    : "The AI returns up to 8 ranked, non-overlapping clips."}
             </p>
             <Button
               onClick={handleAnalyze}
@@ -493,7 +731,11 @@ export default function AIVideoClipping() {
               {busy ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  {stage === "creating" ? "Preparing..." : "Analyzing transcript..."}
+                  {mode === "video"
+                    ? "Processing..."
+                    : stage === "creating"
+                      ? "Preparing..."
+                      : "Analyzing..."}
                 </>
               ) : (
                 <>
@@ -502,7 +744,7 @@ export default function AIVideoClipping() {
               )}
             </Button>
           </div>
-          {busy && (
+          {mode !== "video" && stage !== "idle" && (
             <Progress
               value={stage === "creating" ? 30 : 70}
               className="h-1"
@@ -561,6 +803,10 @@ export default function AIVideoClipping() {
                           </span>
                         ) : null}
                         <span>{s.sourceKind}</span>
+                        {s.fileSizeBytes ? (
+                          <span>{(s.fileSizeBytes / (1024 * 1024)).toFixed(1)} MB</span>
+                        ) : null}
+                        {s.authorName ? <span>by {s.authorName}</span> : null}
                       </div>
                       {s.status === "failed" && s.errorMessage && (
                         <p className="text-[10px] text-red-500/80 mt-1 line-clamp-1">
@@ -598,3 +844,4 @@ export default function AIVideoClipping() {
     </div>
   );
 }
+

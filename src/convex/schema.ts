@@ -143,6 +143,14 @@ const schema = defineSchema(
       platform: v.optional(v.string()),
       videoId: v.optional(v.string()),
       storageId: v.optional(v.id("_storage")),
+      // Local-upload transcription: per-chunk WAV parts stored in Convex
+      // storage while transcription runs (cleaned up afterwards).
+      audioStorageIds: v.optional(v.array(v.id("_storage"))),
+      fileSizeBytes: v.optional(v.number()),
+      mimeType: v.optional(v.string()),
+      // Platform-link enrichment (oEmbed / captions).
+      thumbnailUrl: v.optional(v.string()),
+      authorName: v.optional(v.string()),
       status: v.union(
         v.literal("pending"),
         v.literal("ready"),
