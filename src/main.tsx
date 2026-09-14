@@ -24,6 +24,7 @@ const CalendarPage = lazy(() => import("./pages/dashboard/Calendar.tsx"));
 const AnalyticsPage = lazy(() => import("./pages/dashboard/Analytics.tsx"));
 const BrandVoicesPage = lazy(() => import("./pages/dashboard/BrandVoices.tsx"));
 const FeedbackPage = lazy(() => import("./pages/dashboard/FeedbackPage.tsx"));
+const VideoClipsPage = lazy(() => import("./pages/dashboard/VideoClips.tsx"));
 
 // Simple loading fallback for route transitions
 function RouteLoading() {
@@ -166,6 +167,7 @@ createRoot(document.getElementById("root")!).render(
                 <Route path="calendar" element={<CalendarPage />} />
                 <Route path="analytics" element={<AnalyticsPage />} />
                 <Route path="brand-voices" element={<BrandVoicesPage />} />
+                <Route path="clips" element={<VideoClipsPage />} />
                 <Route path="feedback" element={<FeedbackPage />} />
               </Route>
               <Route path="*" element={<NotFound />} />

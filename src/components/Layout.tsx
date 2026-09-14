@@ -22,6 +22,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Zap,
+  Scissors,
 } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
@@ -31,6 +32,7 @@ const NAV_ITEMS = [
   { label: "Create Content", icon: Sparkles, href: "/dashboard/create" },
   { label: "Content History", icon: History, href: "/dashboard/history" },
   { label: "Calendar", icon: CalendarDays, href: "/dashboard/calendar" },
+  { label: "AI Video Clipping", icon: Scissors, href: "/dashboard/clips" },
   { label: "Analytics", icon: BarChart3, href: "/dashboard/analytics" },
   { label: "Brand Voices", icon: Settings, href: "/dashboard/brand-voices" },
   { label: "Feedback", icon: MessageSquare, href: "/dashboard/feedback" },

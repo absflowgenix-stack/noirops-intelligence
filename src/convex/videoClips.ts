@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { query, mutation } from "./_generated/server";
+import { query, mutation, internalMutation } from "./_generated/server";
 
 // ── Video sources ─────────────────────────────────────────
 
@@ -16,7 +16,7 @@ export const createSource = mutation({
   handler: async (ctx, args) => {
     return await ctx.db.insert("videoSources", {
       ...args,
-      status: "pending",
+      status: "pending" as const,
     });
   },
 });
@@ -31,16 +31,16 @@ export const markSourceReady = mutation({
   },
   handler: async (ctx, args) => {
     const { sourceId, ...patch } = args;
-    await ctx.patch(sourceId, patch);
-    await ctx.patch(sourceId, { status: "ready", errorMessage: undefined });
+    await ctx.db.patch(sourceId, patch);
+    await ctx.db.patch(sourceId, { status: "ready" as const, errorMessage: undefined });
   },
 });
 
 export const markSourceFailed = mutation({
   args: { sourceId: v.id("videoSources"), errorMessage: v.string() },
   handler: async (ctx, args) => {
-    await ctx.patch(args.sourceId, {
-      status: "failed",
+    await ctx.db.patch(args.sourceId, {
+      status: "failed" as const,
       errorMessage: args.errorMessage.slice(0, 500),
     });
   },
@@ -112,7 +112,7 @@ export const saveClips = mutation({
           ...clip,
           userId: args.userId,
           sourceId: args.sourceId,
-          status: "suggested",
+          status: "suggested" as const,
         }),
       );
     }
@@ -153,7 +153,7 @@ export const updateClipStatus = mutation({
     ),
   },
   handler: async (ctx, args) => {
-    await ctx.patch(args.clipId, { status: args.status });
+    await ctx.db.patch(args.clipId, { status: args.status });
   },
 });
 
@@ -161,5 +161,75 @@ export const deleteClip = mutation({
   args: { clipId: v.id("videoClips") },
   handler: async (ctx, args) => {
     await ctx.db.delete(args.clipId);
+  },
+});
+
+// ── Internals (used by the videoClipping action) ─────────
+
+export const markSourceReadyInternal = internalMutation({
+  args: {
+    sourceId: v.id("videoSources"),
+    durationSec: v.optional(v.number()),
+    transcriptText: v.optional(v.string()),
+    transcriptFormat: v.optional(v.string()),
+    transcriptWordCount: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const { sourceId, ...patch } = args;
+    await ctx.db.patch(sourceId, {
+      ...patch,
+      status: "ready" as const,
+      errorMessage: undefined,
+    });
+  },
+});
+
+export const markSourceFailedInternal = internalMutation({
+  args: { sourceId: v.id("videoSources"), errorMessage: v.string() },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.sourceId, {
+      status: "failed" as const,
+      errorMessage: args.errorMessage.slice(0, 500),
+    });
+  },
+});
+
+export const saveClipsInternal = internalMutation({
+  args: {
+    sourceId: v.id("videoSources"),
+    clips: v.array(
+      v.object({
+        title: v.string(),
+        startSec: v.number(),
+        endSec: v.number(),
+        score: v.number(),
+        momentType: v.optional(v.string()),
+        hook: v.optional(v.string()),
+        reason: v.optional(v.string()),
+        transcriptExcerpt: v.optional(v.string()),
+        caption: v.optional(v.string()),
+        hashtags: v.optional(v.array(v.string())),
+        targetPlatform: v.optional(v.string()),
+        aspectRatio: v.optional(v.string()),
+        edits: v.optional(v.any()),
+        transitions: v.optional(v.any()),
+      }),
+    ),
+  },
+  handler: async (ctx, args) => {
+    const source = await ctx.db.get(args.sourceId);
+    if (!source) throw new Error("Source not found");
+    const ids: string[] = [];
+    for (const clip of args.clips) {
+      ids.push(
+        await ctx.db.insert("videoClips", {
+          ...clip,
+          userId: source.userId,
+          sourceId: args.sourceId,
+          status: "suggested" as const,
+        }),
+      );
+    }
+    return ids;
   },
 });

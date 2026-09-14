@@ -127,6 +127,63 @@ const schema = defineSchema(
       defaultAudience: v.optional(v.string()),
       defaultBrandVoiceId: v.optional(v.string()),
     }).index("by_user", ["userId"]),
+
+    // ── AI Video Clipping ────────────────────────────────
+    // A long-form video the user submitted for AI clipping: a social link,
+    // an uploaded file (via Convex storage), or a pasted transcript.
+    videoSources: defineTable({
+      userId: v.string(),
+      title: v.string(),
+      sourceKind: v.union(
+        v.literal("link"),
+        v.literal("upload"),
+        v.literal("transcript"),
+      ),
+      url: v.optional(v.string()),
+      platform: v.optional(v.string()),
+      videoId: v.optional(v.string()),
+      storageId: v.optional(v.id("_storage")),
+      status: v.union(
+        v.literal("pending"),
+        v.literal("ready"),
+        v.literal("failed"),
+      ),
+      durationSec: v.optional(v.number()),
+      transcriptText: v.optional(v.string()),
+      transcriptFormat: v.optional(v.string()),
+      transcriptWordCount: v.optional(v.number()),
+      errorMessage: v.optional(v.string()),
+    })
+      .index("by_user", ["userId"])
+      .index("by_user_status", ["userId", "status"]),
+
+    // One AI-suggested short-form clip cut from a videoSources document.
+    videoClips: defineTable({
+      userId: v.string(),
+      sourceId: v.id("videoSources"),
+      title: v.string(),
+      startSec: v.number(),
+      endSec: v.number(),
+      score: v.number(),
+      momentType: v.optional(v.string()),
+      hook: v.optional(v.string()),
+      reason: v.optional(v.string()),
+      transcriptExcerpt: v.optional(v.string()),
+      caption: v.optional(v.string()),
+      hashtags: v.optional(v.array(v.string())),
+      targetPlatform: v.optional(v.string()),
+      aspectRatio: v.optional(v.string()),
+      edits: v.optional(v.any()),
+      transitions: v.optional(v.any()),
+      status: v.union(
+        v.literal("suggested"),
+        v.literal("accepted"),
+        v.literal("exported"),
+        v.literal("dismissed"),
+      ),
+    })
+      .index("by_user", ["userId"])
+      .index("by_source", ["sourceId"]),
   },
   {
     schemaValidation: false,

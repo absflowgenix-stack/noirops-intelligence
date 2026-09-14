@@ -19,6 +19,7 @@ import type * as feedback from "../feedback.js";
 import type * as http from "../http.js";
 import type * as settings from "../settings.js";
 import type * as users from "../users.js";
+import type * as videoClipping from "../videoClipping.js";
 import type * as videoClips from "../videoClips.js";
 
 import type {
@@ -39,6 +40,7 @@ declare const fullApi: ApiFromModules<{
   http: typeof http;
   settings: typeof settings;
   users: typeof users;
+  videoClipping: typeof videoClipping;
   videoClips: typeof videoClips;
 }>;
 

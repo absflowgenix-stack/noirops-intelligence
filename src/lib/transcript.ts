@@ -8,6 +8,8 @@ export interface TranscriptCue {
   start: number;
   end: number;
   text: string;
+  /** False for plain-text pastes where per-cue timing is unknown. */
+  hasTiming?: boolean;
 }
 
 export interface ParsedTranscript {
@@ -72,7 +74,7 @@ function parseTimed(text: string): ParsedTranscript {
     if (/^(NOTE|STYLE|REGION)\b/i.test(lines[0])) continue;
 
     // The timecode line may be first (VTT w/ cue id absent or SRT without index).
-    let tcIndex = lines.findIndex((l) => parseTimecodeLine(l) !== null);
+    const tcIndex = lines.findIndex((l) => parseTimecodeLine(l) !== null);
     if (tcIndex === -1) continue;
 
     const tc = parseTimecodeLine(lines[tcIndex])!;
@@ -84,7 +86,7 @@ function parseTimed(text: string): ParsedTranscript {
       .replace(/\s+/g, " ")
       .trim();
 
-    if (body) cues.push({ start: tc.start, end: tc.end, text: body });
+    if (body) cues.push({ start: tc.start, end: tc.end, text: body, hasTiming: true });
   }
 
   cues.sort((a, b) => a.start - b.start);
@@ -104,7 +106,7 @@ function parsePlainText(text: string): ParsedTranscript {
     .split(/(?<=[.!?])\s+(?=[A-Z0-9"'])/)
     .map((s) => s.replace(/\s+/g, " ").trim())
     .filter(Boolean);
-  const cues = sentences.map((s) => ({ start: 0, end: 0, text: s }));
+  const cues = sentences.map((s) => ({ start: 0, end: 0, text: s, hasTiming: false }));
   return { cues, hasTiming: false, duration: null, wordCount: countWords(cues) };
 }
 
