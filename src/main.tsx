@@ -24,7 +24,7 @@ const CalendarPage = lazy(() => import("./pages/dashboard/Calendar.tsx"));
 const AnalyticsPage = lazy(() => import("./pages/dashboard/Analytics.tsx"));
 const BrandVoicesPage = lazy(() => import("./pages/dashboard/BrandVoices.tsx"));
 const FeedbackPage = lazy(() => import("./pages/dashboard/FeedbackPage.tsx"));
-const VideoClipsPage = lazy(() => import("./pages/dashboard/VideoClips.tsx"));
+const VideoClipsPage = lazy(() => import("./components/clips/AIVideoClipping.tsx"));
 
 // Simple loading fallback for route transitions
 function RouteLoading() {
