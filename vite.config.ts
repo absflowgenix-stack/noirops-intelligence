@@ -1,7 +1,6 @@
 import { vlyPlugin } from "@vly-ai/integrations";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
-import path from "path";
 import { defineConfig } from "vite";
 
 // https://vite.dev/config/
@@ -9,7 +8,7 @@ export default defineConfig({
   plugins: [react(), vlyPlugin(), tailwindcss()],
   resolve: {
     alias: {
-      "@": path.resolve(__dirname, "./src"),
+      "@": "/project/src",
       // vlyPlugin() injects `import '@vly-ai/integrations';` into every page,
       // and that module imports the Vercel AI SDK (`ai`) and
       // `@ai-sdk/openai-compatible` at the top level. That dragged the whole
@@ -18,11 +17,8 @@ export default defineConfig({
       // instantiates VlyAI (AI runs in Convex "use node" actions, server-side),
       // so these tiny stubs satisfy the named imports and let Rollup drop the
       // rest. The screenshot listener and error reporting are unaffected.
-      "ai": path.resolve(__dirname, "./src/lib/ai-client-stub.ts"),
-      "@ai-sdk/openai-compatible": path.resolve(
-        __dirname,
-        "./src/lib/openai-compatible-client-stub.ts",
-      ),
+      "ai": "/project/src/lib/ai-client-stub.ts",
+      "@ai-sdk/openai-compatible": "/project/src/lib/openai-compatible-client-stub.ts",
     },
     // Force a single copy of React across all packages (including vlyPlugin).
     // Without this, @vly-ai/integrations can resolve its own React copy, which
