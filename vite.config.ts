@@ -28,6 +28,10 @@ export default defineConfig({
   build: {
     // esbuild minifier is the fastest option.
     minify: "esbuild",
+    // The platform build analyzes the graph with an in-browser Rollup whose
+    // treeshaker can crash on this graph; bundling without treeshake is safe
+    // here (esbuild still minifies, dev is unaffected).
+    rollupOptions: { treeshake: false },
     // Modern browsers only — skips legacy transpilation, faster builds.
     target: "esnext",
     chunkSizeWarningLimit: 1000,
