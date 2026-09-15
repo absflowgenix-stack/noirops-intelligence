@@ -1,2 +1,2 @@
-// Tombstone — compiled test artifact retired.
-export const RETIRED = true;
+// Regenerable test artifact tombstone — clean ESM, no product code.
+export default {};
