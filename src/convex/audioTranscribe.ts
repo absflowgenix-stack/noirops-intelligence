@@ -22,6 +22,30 @@ function vlyBase(): string {
 const WHISPER_MODEL = "whisper-1";
 /** 25 MB Whisper limit — our WAV chunks are ~16kB/s so 420s ≈ 6.7 MB. */
 const MAX_CHUNK_BYTES = 24 * 1024 * 1024;
+/** Per-attempt ceiling for one chunk's transcription request. */
+const WHISPER_TIMEOUT_MS = 3 * 60 * 1000;
+/** One retry for transient network blips (DNS/TLS/connection resets). */
+const WHISPER_ATTEMPTS = 2;
+
+/**
+ * Undici wraps the real reason (ENOTFOUND, ECONNREFUSED, TLS errors, …) in
+ * `error.cause` and surfaces only "fetch failed" — dig the cause out so the
+ * message is actionable in the UI and logs.
+ */
+function describeError(err: unknown): string {
+  if (!(err instanceof Error)) return String(err).slice(0, 300);
+  const cause = (err as { cause?: unknown }).cause;
+  let causeText = "";
+  if (cause !== undefined && cause !== null) {
+    if (cause instanceof Error) {
+      const code = (cause as { code?: string }).code;
+      causeText = code ? `${code}: ${cause.message}` : cause.message;
+    } else {
+      causeText = String(cause);
+    }
+  }
+  return causeText ? `${err.message} (${causeText})` : err.message;
+}
 
 /**
  * Transcribe the stored WAV chunks of a locally-uploaded video with Whisper
@@ -56,12 +80,10 @@ export const transcribeFromStorage = action({
         const storageId = args.audioStorageIds[i];
         const chunkOffset = args.chunkStarts?.[i] ?? 0;
 
-        const url = await ctx.runQuery(api.videoClips.getStorageUrl, { storageId });
-        if (!url) throw new Error("Stored audio chunk could not be resolved.");
-
-        const res = await fetch(url);
-        if (!res.ok) throw new Error(`Could not read stored audio (${res.status}).`);
-        const blob = await res.blob();
+        // Read the chunk bytes directly from storage — no HTTP round-trip
+        // through the deployment's public URL from inside the action.
+        const blob = await ctx.storage.get(storageId);
+        if (!blob) throw new Error("Stored audio chunk could not be read from storage.");
         if (blob.size > MAX_CHUNK_BYTES) {
           throw new Error("Audio chunk exceeds the transcription size limit.");
         }
@@ -112,10 +134,10 @@ export const transcribeFromStorage = action({
 
       return { durationSec };
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Transcription failed";
+      const message = describeError(err);
       await ctx.runMutation(internal.videoClips.markSourceFailedInternal, {
         sourceId: args.sourceId,
-        errorMessage: message,
+        errorMessage: message.slice(0, 500),
       });
       throw err;
     }
@@ -128,28 +150,53 @@ async function callWhisper(blob: Blob, language?: string): Promise<string> {
   if (!key) {
     throw new Error("AI service not configured (missing VLY_INTEGRATION_KEY).");
   }
-  const form = new FormData();
-  form.append("file", blob, "audio.wav");
-  form.append("model", WHISPER_MODEL);
-  form.append("response_format", "srt");
-  if (language && language.trim()) {
-    form.append("language", language.trim());
+  const endpoint = `${vlyBase()}/v1/audio/transcriptions`;
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt < WHISPER_ATTEMPTS; attempt++) {
+    try {
+      const form = new FormData();
+      form.append("file", blob, "audio.wav");
+      form.append("model", WHISPER_MODEL);
+      form.append("response_format", "srt");
+      if (language && language.trim()) {
+        form.append("language", language.trim());
+      }
+
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${key}` },
+        body: form,
+        signal: AbortSignal.timeout(WHISPER_TIMEOUT_MS),
+      });
+
+      if (!res.ok) {
+        const errText = await res.text().catch(() => "Unknown error");
+        const message = `Transcription service error (${res.status}): ${errText.slice(0, 200)}`;
+        // 4xx responses are deterministic (auth/validation) — don't retry them.
+        if (res.status >= 400 && res.status < 500) {
+          throw new DeterministicError(message);
+        }
+        throw new Error(message);
+      }
+      return await res.text();
+    } catch (err) {
+      lastError = err;
+      if (err instanceof DeterministicError) throw err;
+      if (attempt < WHISPER_ATTEMPTS - 1) {
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+        continue;
+      }
+    }
   }
 
-  const res = await fetch(`${vlyBase()}/v1/audio/transcriptions`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${key}` },
-    body: form,
-  });
-
-  if (!res.ok) {
-    const errText = await res.text().catch(() => "Unknown error");
-    throw new Error(
-      `Transcription service error (${res.status}): ${errText.slice(0, 200)}`,
-    );
-  }
-  return await res.text();
+  throw new Error(
+    `Could not reach the transcription service (${new URL(endpoint).host}): ${describeError(lastError)}`,
+  );
 }
+
+/** Error that must not be retried (auth/validation failures from the service). */
+class DeterministicError extends Error {}
 
 /**
  * Normalize a Whisper response into chunk-local timed segments.
