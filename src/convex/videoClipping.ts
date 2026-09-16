@@ -6,9 +6,18 @@ import { api, internal } from "./_generated/api";
 import { EDIT_TYPES, TRANSITIONS, MOMENT_TYPES } from "../lib/video-platforms";
 import { parseTranscript, transcriptForPrompt, excerptForRange } from "../lib/transcript";
 
-const VLY_KEY = process.env.VLY_INTEGRATION_KEY;
-const VLY_BASE =
-  process.env.VLY_INTEGRATION_BASE_URL || "https://integrations.freebuff.com";
+/**
+ * Read the integration key/base at call time (not module load) so actions
+ * always see the freshest deployment environment — e.g. after the key is
+ * registered via the CLI or the Keys tab without needing a code push.
+ */
+function vlyKey(): string | undefined {
+  return process.env.VLY_INTEGRATION_KEY;
+}
+
+function vlyBase(): string {
+  return process.env.VLY_INTEGRATION_BASE_URL || "https://integrations.freebuff.com";
+}
 
 /** Cap the transcript fed to the model — long-form safe. */
 const MAX_TRANSCRIPT_CHARS = 120_000;
@@ -19,17 +28,18 @@ async function callAI(
   temperature = 0.4,
   maxTokens = 3000,
 ): Promise<string> {
-  if (!VLY_KEY) {
+  const key = vlyKey();
+  if (!key) {
     throw new Error(
       "AI service not configured. Please add VLY_INTEGRATION_KEY to your environment.",
     );
   }
 
-  const res = await fetch(`${VLY_BASE}/v1/chat/completions`, {
+  const res = await fetch(`${vlyBase()}/v1/chat/completions`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${VLY_KEY}`,
+      Authorization: `Bearer ${key}`,
     },
     body: JSON.stringify({
       model: "gpt-4o-mini",

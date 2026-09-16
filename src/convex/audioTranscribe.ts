@@ -6,9 +6,18 @@ import { api, internal } from "./_generated/api";
 import { parseTranscript } from "../lib/transcript";
 import { buildSrtFromSegments, type TimedSegment } from "../lib/timed-text";
 
-const VLY_KEY = process.env.VLY_INTEGRATION_KEY;
-const VLY_BASE =
-  process.env.VLY_INTEGRATION_BASE_URL || "https://integrations.freebuff.com";
+/**
+ * Read the integration key/base at call time (not module load) so actions
+ * always see the freshest deployment environment — e.g. after the key is
+ * registered via the CLI or the Keys tab without needing a code push.
+ */
+function vlyKey(): string | undefined {
+  return process.env.VLY_INTEGRATION_KEY;
+}
+
+function vlyBase(): string {
+  return process.env.VLY_INTEGRATION_BASE_URL || "https://integrations.freebuff.com";
+}
 
 const WHISPER_MODEL = "whisper-1";
 /** 25 MB Whisper limit — our WAV chunks are ~16kB/s so 420s ≈ 6.7 MB. */
@@ -30,7 +39,7 @@ export const transcribeFromStorage = action({
     focusTopic: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    if (!VLY_KEY) {
+    if (!vlyKey()) {
       await ctx.runMutation(internal.videoClips.markSourceFailedInternal, {
         sourceId: args.sourceId,
         errorMessage:
@@ -115,6 +124,10 @@ export const transcribeFromStorage = action({
 
 /** POST one WAV chunk to the Whisper-compatible endpoint, requesting SRT. */
 async function callWhisper(blob: Blob, language?: string): Promise<string> {
+  const key = vlyKey();
+  if (!key) {
+    throw new Error("AI service not configured (missing VLY_INTEGRATION_KEY).");
+  }
   const form = new FormData();
   form.append("file", blob, "audio.wav");
   form.append("model", WHISPER_MODEL);
@@ -123,9 +136,9 @@ async function callWhisper(blob: Blob, language?: string): Promise<string> {
     form.append("language", language.trim());
   }
 
-  const res = await fetch(`${VLY_BASE}/v1/audio/transcriptions`, {
+  const res = await fetch(`${vlyBase()}/v1/audio/transcriptions`, {
     method: "POST",
-    headers: { Authorization: `Bearer ${VLY_KEY}` },
+    headers: { Authorization: `Bearer ${key}` },
     body: form,
   });
 
