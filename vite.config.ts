@@ -26,15 +26,21 @@ export default defineConfig({
     dedupe: ["react", "react/jsx-runtime", "react-dom", "react-dom/client"],
   },
   build: {
-    // esbuild minifier is the fastest option.
-    minify: "esbuild",
+    // Minification is skipped on purpose: the platform build runs Rollup in
+    // the browser and esbuild-minifying the (un-treeshaken) graph — the lucide
+    // barrel alone keeps ~1500 icon modules with treeshake off — exceeded the
+    // 4-minute closeBundle deadline. Routes are lazy-loaded, so shipping
+    // unminified chunks is safe and the build now finishes in time.
+    minify: false,
+    // Skipping the gzip-size report saves a full pass over every chunk.
+    reportCompressedSize: false,
     // The platform build analyzes the graph with an in-browser Rollup whose
     // treeshaker can crash on this graph; bundling without treeshake is safe
-    // here (esbuild still minifies, dev is unaffected).
+    // here (dev is unaffected).
     rollupOptions: { treeshake: false },
     // Modern browsers only — skips legacy transpilation, faster builds.
     target: "esnext",
-    chunkSizeWarningLimit: 1000,
+    chunkSizeWarningLimit: 2000,
   },
   server: {
     // Bind to all interfaces so WebContainer's server-ready event fires.
