@@ -148,6 +148,17 @@ const schema = defineSchema(
       audioStorageIds: v.optional(v.array(v.id("_storage"))),
       fileSizeBytes: v.optional(v.number()),
       mimeType: v.optional(v.string()),
+      // Platform-link media ingestion: the actual video file resolved from a
+      // social link and copied into NoirOps storage so clips are delivered
+      // from our own app, not the origin platform.
+      mediaUrl: v.optional(v.string()),
+      mediaStorageId: v.optional(v.id("_storage")),
+      mediaBytes: v.optional(v.number()),
+      mediaContentType: v.optional(v.string()),
+      mediaStatus: v.optional(
+        v.union(v.literal("none"), v.literal("stored"), v.literal("failed")),
+      ),
+      mediaError: v.optional(v.string()),
       // Platform-link enrichment (oEmbed / captions).
       thumbnailUrl: v.optional(v.string()),
       authorName: v.optional(v.string()),
@@ -189,9 +200,20 @@ const schema = defineSchema(
         v.literal("exported"),
         v.literal("dismissed"),
       ),
+      // Rendered clip asset (cut in the browser from the source media, stored
+      // in NoirOps) + a capability token for the public client share page.
+      assetStorageId: v.optional(v.id("_storage")),
+      assetBytes: v.optional(v.number()),
+      assetContentType: v.optional(v.string()),
+      assetStatus: v.optional(
+        v.union(v.literal("none"), v.literal("ready"), v.literal("failed")),
+      ),
+      assetError: v.optional(v.string()),
+      shareToken: v.optional(v.string()),
     })
       .index("by_user", ["userId"])
-      .index("by_source", ["sourceId"]),
+      .index("by_source", ["sourceId"])
+      .index("by_share_token", ["shareToken"]),
   },
   {
     schemaValidation: false,

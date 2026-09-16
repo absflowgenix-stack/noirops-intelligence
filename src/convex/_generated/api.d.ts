@@ -18,6 +18,7 @@ import type * as calendarEvents from "../calendarEvents.js";
 import type * as content from "../content.js";
 import type * as feedback from "../feedback.js";
 import type * as http from "../http.js";
+import type * as mediaIngest from "../mediaIngest.js";
 import type * as platformIngest from "../platformIngest.js";
 import type * as settings from "../settings.js";
 import type * as users from "../users.js";
@@ -41,6 +42,7 @@ declare const fullApi: ApiFromModules<{
   content: typeof content;
   feedback: typeof feedback;
   http: typeof http;
+  mediaIngest: typeof mediaIngest;
   platformIngest: typeof platformIngest;
   settings: typeof settings;
   users: typeof users;
