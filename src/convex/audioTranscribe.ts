@@ -20,15 +20,21 @@ function vlyBase(): string {
 }
 
 const WHISPER_MODEL = "whisper-1";
-/** 25 MB Whisper limit — our WAV chunks are ~16kB/s so 420s ≈ 6.7 MB. */
+/** 25 MB Whisper limit — chunks are ~25s ≈ 0.8 MB, far below it. */
 const MAX_CHUNK_BYTES = 24 * 1024 * 1024;
 /** Per-attempt ceiling for one chunk's transcription request. */
 const WHISPER_TIMEOUT_MS = 3 * 60 * 1000;
 /** One retry for transient network blips (DNS/TLS/connection resets). */
 const WHISPER_ATTEMPTS = 2;
+/**
+ * Parallel Whisper requests. Smaller chunks mean more requests, so a few run
+ * concurrently to keep long videos well inside the action time limit. Kept
+ * modest so the egress bridge never sees many simultaneous body writes.
+ */
+const WHISPER_CONCURRENCY = 3;
 
 /**
- * Undici wraps the real reason (ENOTFOUND, ECONNREFUSED, TLS errors, …) in
+ * Undici wraps the real reason (ENOTFOUND, ECONNREFUSED, EBUSY, TLS, …) in
  * `error.cause` and surfaces only "fetch failed" — dig the cause out so the
  * message is actionable in the UI and logs.
  */
@@ -73,27 +79,43 @@ export const transcribeFromStorage = action({
     }
 
     try {
+      // Transcribe chunks with bounded parallelism; results stay ordered by
+      // index so the timeline rebasing below is unaffected.
+      const rawResults: (string | null)[] = new Array(args.audioStorageIds.length).fill(null);
+      let nextIndex = 0;
+
+      const worker = async () => {
+        while (true) {
+          const i = nextIndex++;
+          if (i >= args.audioStorageIds.length) return;
+
+          // Read the chunk bytes directly from storage — no HTTP round-trip
+          // through the deployment's public URL from inside the action.
+          const blob = await ctx.storage.get(args.audioStorageIds[i]);
+          if (!blob) throw new Error("Stored audio chunk could not be read from storage.");
+          if (blob.size > MAX_CHUNK_BYTES) {
+            throw new Error("Audio chunk exceeds the transcription size limit.");
+          }
+          // Materialize a fresh in-memory copy: file-backed Blobs must not
+          // cross the runtime's network bridge inside a request body.
+          const bytes = new Uint8Array(await blob.arrayBuffer());
+          rawResults[i] = await callWhisper(bytes, args.language);
+        }
+      };
+
+      await Promise.all(
+        Array.from(
+          { length: Math.min(WHISPER_CONCURRENCY, args.audioStorageIds.length) },
+          () => worker(),
+        ),
+      );
+
       const allSegments: TimedSegment[] = [];
       let sawUntimedOutput = false;
 
-      for (let i = 0; i < args.audioStorageIds.length; i++) {
-        const storageId = args.audioStorageIds[i];
+      for (let i = 0; i < rawResults.length; i++) {
         const chunkOffset = args.chunkStarts?.[i] ?? 0;
-
-        // Read the chunk bytes directly from storage — no HTTP round-trip
-        // through the deployment's public URL from inside the action.
-        const blob = await ctx.storage.get(storageId);
-        if (!blob) throw new Error("Stored audio chunk could not be read from storage.");
-        if (blob.size > MAX_CHUNK_BYTES) {
-          throw new Error("Audio chunk exceeds the transcription size limit.");
-        }
-
-        const text = await callWhisper(blob, args.language);
-
-        // The endpoint may honor response_format=srt (plain SRT text) or fall
-        // back to JSON ({ segments } / { text }). Normalize, then rebase the
-        // chunk-local timestamps onto the global timeline.
-        const localSegments = normalizeWhisperOutput(text);
+        const localSegments = normalizeWhisperOutput(rawResults[i] ?? "");
         if (localSegments.length === 0) sawUntimedOutput = true;
         for (const seg of localSegments) {
           allSegments.push({
@@ -144,8 +166,12 @@ export const transcribeFromStorage = action({
   },
 });
 
-/** POST one WAV chunk to the Whisper-compatible endpoint, requesting SRT. */
-async function callWhisper(blob: Blob, language?: string): Promise<string> {
+/**
+ * POST one in-memory WAV chunk to the Whisper-compatible endpoint. The body
+ * is built from a fresh Uint8Array-backed Blob (never a storage Blob) and is
+ * small (~0.8 MB) so the egress bridge can carry it.
+ */
+async function callWhisper(bytes: Uint8Array, language?: string): Promise<string> {
   const key = vlyKey();
   if (!key) {
     throw new Error("AI service not configured (missing VLY_INTEGRATION_KEY).");
@@ -156,7 +182,7 @@ async function callWhisper(blob: Blob, language?: string): Promise<string> {
   for (let attempt = 0; attempt < WHISPER_ATTEMPTS; attempt++) {
     try {
       const form = new FormData();
-      form.append("file", blob, "audio.wav");
+      form.append("file", new Blob([bytes], { type: "audio/wav" }), "audio.wav");
       form.append("model", WHISPER_MODEL);
       form.append("response_format", "srt");
       if (language && language.trim()) {

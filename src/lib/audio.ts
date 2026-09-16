@@ -7,12 +7,13 @@
 
 const TARGET_SAMPLE_RATE = 16000;
 /**
- * Target chunk length in seconds. 75 s ≈ 2.4 MB of 16 kHz mono WAV per
+ * Target chunk length in seconds. 25 s ≈ 0.8 MB of 16 kHz mono WAV per
  * request — the Convex runtime's outbound network bridge fails with EBUSY on
- * multi-MB multipart bodies, so chunks are kept small; the pipeline just
- * issues more (fast) Whisper requests instead.
+ * large multipart bodies (it choked at 13 MB and again at 2.4 MB), so chunks
+ * are kept well under 1 MB; the action transcribes 3 chunks concurrently to
+ * offset the higher request count.
  */
-export const AUDIO_CHUNK_SECONDS = 75;
+export const AUDIO_CHUNK_SECONDS = 25;
 /** Overlap kept between chunks so sentences spanning boundaries stay intact. */
 export const AUDIO_CHUNK_OVERLAP = 1.5;
 
