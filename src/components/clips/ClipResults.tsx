@@ -2,7 +2,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { ArrowLeft, AlertCircle, Loader2, Scissors } from "lucide-react";
-import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { formatDuration } from "@/lib/video-platforms";
 import { ClipCard } from "@/components/clips/ClipCard";
@@ -14,11 +13,17 @@ export function ClipResults({ workspace }: { workspace: ClipWorkspace }) {
   const {
     activeSource,
     clips,
+    sourceMediaUrl,
+    renderingClipId,
+    renderPct,
     acceptClip,
     dismissClip,
     copyTimecodes,
     copyCaption,
     sendToDrafts,
+    renderClipAsset,
+    shareClip,
+    getShareLink,
     reset,
   } = workspace;
 
@@ -39,6 +44,11 @@ export function ClipResults({ workspace }: { workspace: ClipWorkspace }) {
             {activeSource?.durationSec
               ? ` from ${formatDuration(activeSource.durationSec)} of video`
               : ""}
+            {sourceMediaUrl?.origin === "noirops"
+              ? " — video stored in NoirOps"
+              : sourceMediaUrl?.origin === "platform"
+                ? " — streaming from platform"
+                : ""}
           </p>
         </div>
         {activeSource && (
@@ -84,11 +94,18 @@ export function ClipResults({ workspace }: { workspace: ClipWorkspace }) {
               clip={clip}
               index={index}
               totalDuration={activeSource?.durationSec ?? undefined}
+              mediaUrl={sourceMediaUrl?.url ?? null}
+              mediaOrigin={sourceMediaUrl?.origin ?? null}
+              renderingClipId={renderingClipId ?? null}
+              renderPct={renderPct}
+              shareLink={getShareLink(clip._id)}
               onAccept={() => void acceptClip(clip)}
               onSendToDrafts={() => void sendToDrafts(clip)}
               onCopyTimecodes={() => copyTimecodes(clip)}
               onDismiss={() => void dismissClip(clip)}
               onCopyCaption={() => copyCaption(clip)}
+              onRender={() => void renderClipAsset(clip)}
+              onShare={() => void shareClip(clip)}
             />
           ))}
         </div>

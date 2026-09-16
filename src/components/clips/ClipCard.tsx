@@ -1,15 +1,32 @@
+import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Progress } from "@/components/ui/progress";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Clock, Copy, Check, X, Send, Zap, Scissors } from "lucide-react";
+import {
+  Clock,
+  Copy,
+  Check,
+  X,
+  Send,
+  Zap,
+  Scissors,
+  Clapperboard,
+  Loader2,
+  Share2,
+  Download,
+  TriangleAlert,
+} from "lucide-react";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { clipFilename, downloadBlob, extFor } from "@/lib/clip-renderer";
 import {
   formatDuration,
   formatTimecode,
@@ -26,6 +43,13 @@ const CLIP_STATUS_STYLES: Record<string, string> = {
   accepted: "bg-emerald-500/10 text-emerald-500 border-emerald-500/20",
   exported: "bg-blue-500/10 text-blue-500 border-blue-500/20",
   dismissed: "bg-muted text-muted-foreground border-border",
+};
+
+const ASSET_STATUS_STYLES: Record<string, string> = {
+  ready: "bg-emerald-500/10 text-emerald-500 border-emerald-500/20",
+  rendering: "bg-blue-500/10 text-blue-500 border-blue-500/20",
+  failed: "bg-red-500/10 text-red-500 border-red-500/20",
+  none: "bg-muted text-muted-foreground border-border",
 };
 
 interface ClipEdit {
@@ -46,29 +70,142 @@ function transitionMeta(id: string) {
   return TRANSITIONS.find((t) => t.id === id);
 }
 
+/** In-app player for one clip: bounds playback to the clip's timecodes. */
+function ClipPlayer({
+  src,
+  startSec,
+  endSec,
+  aspectRatio,
+}: {
+  src: string;
+  startSec: number;
+  endSec: number;
+  aspectRatio?: string | null;
+}) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [muted, setMuted] = useState(true);
+  const [playing, setPlaying] = useState(false);
+
+  // Start at the clip start; clamp playback to the clip window.
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    v.currentTime = startSec;
+    const onTime = () => {
+      if (v.currentTime >= endSec) {
+        v.pause();
+        setPlaying(false);
+        v.currentTime = startSec;
+      }
+    };
+    v.addEventListener("timeupdate", onTime);
+    return () => v.removeEventListener("timeupdate", onTime);
+  }, [src, startSec, endSec]);
+
+  const togglePlay = () => {
+    const v = videoRef.current;
+    if (!v) return;
+    if (v.paused) {
+      if (v.currentTime < startSec || v.currentTime >= endSec) v.currentTime = startSec;
+      void v.play();
+      setPlaying(true);
+    } else {
+      v.pause();
+      setPlaying(false);
+    }
+  };
+
+  return (
+    <div
+      className={cn(
+        "relative overflow-hidden rounded-md border border-border/60 bg-black/90",
+        aspectRatio === "9:16" ? "max-w-[220px]" : "w-full"
+      )}
+    >
+      <video
+        ref={videoRef}
+        src={src}
+        className="w-full h-auto max-h-[320px]"
+        muted={muted}
+        playsInline
+        preload="metadata"
+        onClick={togglePlay}
+      />
+      <div className="absolute inset-x-0 bottom-0 flex items-center gap-2 bg-black/60 px-2 py-1.5">
+        <button
+          type="button"
+          onClick={togglePlay}
+          className="text-white/90 hover:text-white text-xs cursor-pointer"
+        >
+          {playing ? "❚❚" : "▶"}
+        </button>
+        <span className="text-[10px] text-white/60 tabular-nums">
+          {formatDuration(startSec)} – {formatDuration(endSec)}
+        </span>
+        <button
+          type="button"
+          onClick={() => setMuted((m) => !m)}
+          className="ml-auto text-[10px] text-white/60 hover:text-white cursor-pointer"
+        >
+          {muted ? "Unmute" : "Mute"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function ClipCard({
   clip,
   index,
   totalDuration,
+  mediaUrl,
+  mediaOrigin,
+  renderingClipId,
+  renderPct,
+  shareLink,
   onAccept,
   onDismiss,
   onSendToDrafts,
   onCopyTimecodes,
   onCopyCaption,
+  onRender,
+  onShare,
 }: {
   clip: Doc<"videoClips">;
   index: number;
   totalDuration?: number;
+  mediaUrl?: string | null;
+  mediaOrigin?: "noirops" | "platform" | null;
+  renderingClipId?: string | null;
+  renderPct?: number;
+  shareLink?: string | null;
   onAccept: () => Promise<void> | void;
   onDismiss: () => Promise<void> | void;
   onSendToDrafts: () => void;
   onCopyTimecodes: () => void;
   onCopyCaption: () => void;
+  onRender: () => void;
+  onShare: () => void;
 }) {
   const tone = scoreTone(clip.score);
   const duration = clip.endSec - clip.startSec;
   const edits = (clip.edits ?? []) as ClipEdit[];
   const transitions = (clip.transitions ?? []) as ClipTransition[];
+  const isRendering = renderingClipId === clip._id;
+  const assetStatus = clip.assetStatus ?? "none";
+
+  const downloadRendered = () => {
+    if (!clip.assetStorageId) return;
+    // Convex storage URLs are stable per storage id; resolve via query hook.
+    const url = `/api/storage/${clip.assetStorageId}`;
+    fetch(url)
+      .then((r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.blob();
+      })
+      .then((b) => downloadBlob(b, clipFilename(clip.title, clip.assetContentType)))
+      .catch(() => toast.error("Could not download the rendered clip."));
+  };
 
   return (
     <motion.div
@@ -101,13 +238,18 @@ export function ClipCard({
                 </Badge>
                 <Badge
                   variant="outline"
-                  className={cn(
-                    "text-[10px] capitalize",
-                    CLIP_STATUS_STYLES[clip.status] ?? ""
-                  )}
+                  className={cn("text-[10px] capitalize", CLIP_STATUS_STYLES[clip.status] ?? "")}
                 >
                   {clip.status}
                 </Badge>
+                {assetStatus !== "none" && (
+                  <Badge
+                    variant="outline"
+                    className={cn("text-[10px] capitalize", ASSET_STATUS_STYLES[assetStatus] ?? "")}
+                  >
+                    {assetStatus === "ready" ? "rendered" : assetStatus}
+                  </Badge>
+                )}
               </div>
               <div className="flex items-center gap-3 mt-1.5 text-[11px] text-muted-foreground">
                 <span className="flex items-center gap-1">
@@ -146,6 +288,40 @@ export function ClipCard({
                   width: `${Math.min(100, (duration / totalDuration) * 100)}%`,
                 }}
               />
+            </div>
+          )}
+
+          {/* In-app preview */}
+          {isRendering ? (
+            <div className="rounded-md border border-border/50 bg-muted/40 p-4 space-y-2">
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+                Rendering clip in your browser ({renderPct ?? 0}%) — real-time capture, hang tight.
+              </div>
+              <Progress value={renderPct ?? 0} className="h-1.5" aria-label="Clip render progress" />
+            </div>
+          ) : clip.assetStorageId ? (
+            <ClipPlayer
+              src={`/api/storage/${clip.assetStorageId}`}
+              startSec={clip.startSec}
+              endSec={clip.endSec}
+              aspectRatio={clip.aspectRatio}
+            />
+          ) : mediaUrl ? (
+            <ClipPlayer
+              src={mediaUrl}
+              startSec={clip.startSec}
+              endSec={clip.endSec}
+              aspectRatio={clip.aspectRatio}
+            />
+          ) : (
+            <div className="rounded-md border border-dashed border-border/50 bg-muted/30 p-3 flex items-start gap-2 text-[11px] text-muted-foreground">
+              <TriangleAlert className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+              <span>
+                No playable media for this source yet. Clips still carry exact timecodes —
+                upload the video or paste a platform link whose video can be fetched to render
+                them in-app.
+              </span>
             </div>
           )}
 
@@ -225,6 +401,32 @@ export function ClipCard({
             </div>
           )}
 
+          {/* Share link (after sharing) */}
+          {shareLink && (
+            <div className="rounded-md border border-primary/30 bg-primary/5 p-2.5 flex items-center gap-2">
+              <Share2 className="h-3.5 w-3.5 text-primary shrink-0" />
+              <code className="text-[11px] truncate flex-1 text-foreground/80">{shareLink}</code>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-6 px-2 text-[11px] cursor-pointer"
+                onClick={() => {
+                  void navigator.clipboard.writeText(shareLink);
+                  toast.success("Link copied");
+                }}
+              >
+                Copy
+              </Button>
+            </div>
+          )}
+
+          {/* Render error */}
+          {clip.assetError && (
+            <p className="text-[11px] text-red-500/90 flex items-center gap-1.5">
+              <TriangleAlert className="h-3 w-3" /> {clip.assetError}
+            </p>
+          )}
+
           {/* Actions */}
           <div className="flex flex-wrap items-center gap-2 pt-1">
             {clip.status === "suggested" && (
@@ -232,11 +434,40 @@ export function ClipCard({
                 <Check className="h-3.5 w-3.5" /> Accept clip
               </Button>
             )}
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8 gap-1.5 cursor-pointer"
+              onClick={onRender}
+              disabled={isRendering}
+            >
+              <Clapperboard className="h-3.5 w-3.5" />
+              {clip.assetStorageId ? "Re-render" : "Render clip"}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8 gap-1.5 cursor-pointer"
+              onClick={onShare}
+            >
+              <Share2 className="h-3.5 w-3.5" /> Share
+            </Button>
+            {clip.assetStorageId && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-8 gap-1.5 text-muted-foreground cursor-pointer"
+                onClick={downloadRendered}
+              >
+                <Download className="h-3.5 w-3.5" /> Download (.
+                {extFor(clip.assetContentType)})
+              </Button>
+            )}
             {clip.caption && (
               <Button
                 size="sm"
-                variant="outline"
-                className="h-8 gap-1.5 cursor-pointer"
+                variant="ghost"
+                className="h-8 gap-1.5 text-muted-foreground cursor-pointer"
                 onClick={onSendToDrafts}
               >
                 <Send className="h-3.5 w-3.5" /> Send to drafts

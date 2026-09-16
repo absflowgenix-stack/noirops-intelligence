@@ -381,6 +381,17 @@ export const markSourceFailedInternal = internalMutation({
   },
 });
 
+/** Internal twin of markSourceMediaFailed for actions. */
+export const markSourceMediaFailedInternal = internalMutation({
+  args: { sourceId: v.id("videoSources"), errorMessage: v.string() },
+  handler: async (ctx, { sourceId, errorMessage }) => {
+    await ctx.db.patch(sourceId, {
+      mediaStatus: "failed" as const,
+      mediaError: errorMessage.slice(0, 500),
+    });
+  },
+});
+
 export const patchSourceMetaInternal = internalMutation({
   args: {
     sourceId: v.id("videoSources"),

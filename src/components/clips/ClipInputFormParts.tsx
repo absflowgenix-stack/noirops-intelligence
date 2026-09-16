@@ -33,7 +33,7 @@ export function UploadDropzone({ workspace }: { workspace: ClipWorkspace }) {
           <Upload className="h-5 w-5 text-muted-foreground mx-auto" />
           <p className="text-sm font-medium">Upload an SRT, VTT or TXT transcript</p>
           <p className="text-xs text-muted-foreground">
-            Timed transcripts (SRT/VTT) give frame-accurate clips. Max 5 MB.
+            Timed transcripts (SRT/VTT) give frame-accurate clips. Up to 1 GB.
           </p>
         </div>
       )}

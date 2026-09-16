@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { detectPlatform, formatTimecode } from "@/lib/video-platforms";
 import { transcriptFormat } from "@/lib/transcript";
 import { prepareAudioChunks } from "@/lib/audio";
+import { renderClip as renderClipLib } from "@/lib/clip-renderer";
 
 export type InputMode = "link" | "video" | "upload" | "transcript";
 
@@ -27,6 +28,9 @@ export const SOURCE_STATUS_STYLES: Record<string, string> = {
 /** Hard safety cap: decoding multi-GB files in the browser can exhaust memory. */
 export const MAX_VIDEO_BYTES = 1024 * 1024 * 1024; // 1 GB
 
+/** Transcript files share the same 1 GB cap (raised from 5 MB). */
+export const MAX_TRANSCRIPT_FILE_BYTES = 1024 * 1024 * 1024; // 1 GB
+
 /**
  * All state, data queries and flows for the AI Video Clipping page,
  * extracted from the page component so views stay small and focused.
@@ -41,9 +45,14 @@ export function useClipWorkspace() {
   const createDraft = useMutation(api.content.create);
   const generateUploadUrl = useMutation(api.videoClips.generateUploadUrl);
   const attachSourceAudio = useMutation(api.videoClips.attachSourceAudio);
+  const attachClipAsset = useMutation(api.videoClips.attachClipAsset);
+  const markClipAssetFailed = useMutation(api.videoClips.markClipAssetFailed);
+  const ensureShareToken = useMutation(api.videoClips.ensureShareToken);
   const analyze = useAction(api.videoClipping.analyzeSource);
   const transcribe = useAction(api.audioTranscribe.transcribeFromStorage);
-  const enrichLink = useAction(api.platformIngest.enrichLinkSource);
+  // Enriches metadata/captions AND pulls the source video into NoirOps storage
+  // when the platform exposes it, so clips can be previewed and rendered here.
+  const enrichLink = useAction(api.mediaIngest.enrichAndIngestLink);
 
   // ── Input state ──────────────────────────────────────────
   const [mode, setMode] = useState<InputMode>("link");
@@ -63,6 +72,11 @@ export function useClipWorkspace() {
   const [activeSourceId, setActiveSourceId] = useState<Id<"videoSources"> | null>(null);
   const [stage, setStage] = useState<"idle" | "creating" | "analyzing">("idle");
 
+  // ── Render + share state ─────────────────────────────────
+  const [renderingClipId, setRenderingClipId] = useState<Id<"videoClips"> | null>(null);
+  const [renderPct, setRenderPct] = useState(0);
+  const [shareLinks, setShareLinks] = useState<Record<string, string>>({});
+
   // ── Data ─────────────────────────────────────────────────
   const sources = useQuery(
     api.videoClips.listSources,
@@ -78,6 +92,13 @@ export function useClipWorkspace() {
     api.videoClips.listClipsForSource,
     activeSourceId ? { sourceId: activeSourceId } : "skip"
   ) as Doc<"videoClips">[] | undefined;
+
+  // All clips of a source share one media file; subscribe once for playback.
+  const firstClipId = clips && clips.length > 0 ? clips[0]!._id : undefined;
+  const sourceMediaUrl = useQuery(
+    api.videoClips.getClipMediaUrl,
+    firstClipId ? { clipId: firstClipId } : "skip"
+  ) as { url: string; origin: "noirops" | "platform"; contentType?: string } | null | undefined;
 
   // ── Derived ──────────────────────────────────────────────
   const detected = useMemo(() => detectPlatform(linkUrl), [linkUrl]);
@@ -99,8 +120,8 @@ export function useClipWorkspace() {
 
   // ── Handlers: transcript file ────────────────────────────
   const handleFile = async (file: File) => {
-    if (file.size > 5 * 1024 * 1024) {
-      toast.error("Transcript file is too large (max 5 MB).");
+    if (file.size > MAX_TRANSCRIPT_FILE_BYTES) {
+      toast.error("Transcript file is too large (max 1 GB).");
       return;
     }
     const text = await file.text();
@@ -236,8 +257,9 @@ export function useClipWorkspace() {
           videoId: detected?.videoId,
         });
 
-        // A pasted transcript (if any) takes priority; otherwise try to pull
-        // captions automatically and enrich with platform metadata.
+        // A pasted transcript (if any) takes priority; otherwise enrich the
+        // link: pull captions/metadata AND fetch the video into NoirOps
+        // storage when the platform allows it.
         if (tFormat && tFormat !== "plain" && transcriptText.trim().length > 40) {
           setStage("analyzing");
           await analyze({
@@ -257,9 +279,12 @@ export function useClipWorkspace() {
           });
           if (result.transcriptFound) {
             toast.success(result.message);
+          } else if (result.mediaStored) {
+            toast.success(result.message);
           } else {
             toast(result.message, {
-              description: "The link was enriched with platform metadata.",
+              description:
+                "The link was enriched with platform metadata — add its transcript below for timed clips.",
             });
           }
         }
@@ -343,6 +368,83 @@ export function useClipWorkspace() {
     toast.success("Caption copied");
   };
 
+  // ── Clip preview / render / share (client delivery) ──────
+
+  /**
+   * Render a clip in the browser from the source media, upload the result
+   * to Convex storage, and attach it to the clip for in-app + share playback.
+   */
+  const renderClipAsset = async (clip: Doc<"videoClips">) => {
+    if (!userId || !activeSourceId || clip.sourceId !== activeSourceId) return;
+    try {
+      setRenderingClipId(clip._id);
+      setRenderPct(1);
+
+      if (!sourceMediaUrl?.url) {
+        toast.error(
+          "No playable media for this source yet — upload the video file or use a link whose video can be fetched.",
+          { description: "Timecodes, captions and edits still work without media." }
+        );
+        setRenderingClipId(null);
+        return;
+      }
+
+      const rendered = await renderClipLib({
+        sourceUrl: sourceMediaUrl.url,
+        startSec: clip.startSec,
+        endSec: clip.endSec,
+        aspectRatio: clip.aspectRatio,
+        overlayText: clip.hook ?? null,
+        onProgress: setRenderPct,
+      });
+
+      const uploadUrl = await generateUploadUrl({});
+      const res = await fetch(uploadUrl, {
+        method: "POST",
+        headers: { "Content-Type": rendered.contentType },
+        body: rendered.blob,
+      });
+      if (!res.ok) throw new Error(`Clip upload failed (${res.status}).`);
+      const { storageId } = (await res.json()) as { storageId: string };
+
+      await attachClipAsset({
+        clipId: clip._id,
+        assetStorageId: storageId as Id<"_storage">,
+        assetBytes: rendered.blob.size,
+        assetContentType: rendered.contentType,
+      });
+      toast.success("Clip rendered and saved — it now plays right here.");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Clip render failed";
+      try {
+        await markClipAssetFailed({ clipId: clip._id, errorMessage: message });
+      } catch {
+        // Best-effort bookkeeping.
+      }
+      toast.error(message.slice(0, 200));
+    } finally {
+      setRenderingClipId(null);
+      setRenderPct(0);
+    }
+  };
+
+  /** Create (or reuse) the public share link for a clip. */
+  const shareClip = async (clip: Doc<"videoClips">) => {
+    try {
+      const token = await ensureShareToken({ clipId: clip._id });
+      const url = `${window.location.origin}/share/clip/${token}`;
+      setShareLinks((prev) => ({ ...prev, [clip._id]: url }));
+      await navigator.clipboard.writeText(url).catch(() => undefined);
+      toast.success("Share link copied — anyone with it can view this clip.");
+      return url;
+    } catch {
+      toast.error("Could not create the share link.");
+      return null;
+    }
+  };
+
+  const getShareLink = (clipId: string) => shareLinks[clipId] ?? null;
+
   const sendToDrafts = async (clip: Doc<"videoClips">) => {
     if (!userId) return;
     try {
@@ -395,11 +497,14 @@ export function useClipWorkspace() {
     // derived
     detected, tFormat, busy, canAnalyze, stage,
     // data
-    sources, activeSource, clips, activeSourceId,
+    sources, activeSource, clips, activeSourceId, sourceMediaUrl,
     // actions
     handleFile, handleVideoFile, handleAnalyze, reset,
     acceptClip, dismissClip, copyTimecodes, copyCaption, sendToDrafts,
     removeSource, openSource,
+    // render + share
+    renderingClipId, renderPct,
+    renderClipAsset, shareClip, getShareLink,
   };
 }
 
