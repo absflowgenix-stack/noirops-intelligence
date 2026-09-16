@@ -6,8 +6,13 @@
  */
 
 const TARGET_SAMPLE_RATE = 16000;
-/** Target chunk length in seconds (safely below Whisper's 25 MB limit). */
-export const AUDIO_CHUNK_SECONDS = 420; // 7 minutes
+/**
+ * Target chunk length in seconds. 75 s ≈ 2.4 MB of 16 kHz mono WAV per
+ * request — the Convex runtime's outbound network bridge fails with EBUSY on
+ * multi-MB multipart bodies, so chunks are kept small; the pipeline just
+ * issues more (fast) Whisper requests instead.
+ */
+export const AUDIO_CHUNK_SECONDS = 75;
 /** Overlap kept between chunks so sentences spanning boundaries stay intact. */
 export const AUDIO_CHUNK_OVERLAP = 1.5;
 
