@@ -250,7 +250,14 @@ export async function renderClip(options: RenderClipOptions): Promise<RenderedCl
     canvas.width = w;
     canvas.height = h;
 
-    canvasStream = canvas.captureStream(30);
+    try {
+      canvasStream = canvas.captureStream(30);
+    } catch {
+      // Tainted canvas: the media host does not send CORS headers.
+      throw new Error(
+        "This source's host blocks in-browser rendering (CORS). Re-add the link so the video is stored in NoirOps, or upload the file directly."
+      );
+    }
     const tracks = [...canvasStream.getVideoTracks()];
     try {
       const audio = video.captureStream?.() ?? null;

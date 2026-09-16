@@ -119,8 +119,9 @@ export function ClipInputForm({ workspace }: { workspace: ClipWorkspace }) {
             </div>
             <p className="text-[11px] text-muted-foreground flex items-start gap-1">
               <Wand2 className="h-3 w-3 mt-0.5 shrink-0 text-primary/70" />
-              YouTube links are transcribed automatically from public captions. Other platforms
-              are enriched with metadata — add their transcript below or use the Video tab.
+              We pull captions for clipping and download the video when the platform allows it, so
+              clips preview, render and share right here. Some platforms only expose captions —
+              add their transcript below or use the Video tab.
             </p>
           </div>
         )}
@@ -197,7 +198,7 @@ export function ClipInputForm({ workspace }: { workspace: ClipWorkspace }) {
             {mode === "video"
               ? "Transcription runs on chunked audio; long videos are fully supported."
               : mode === "link"
-                ? "YouTube captions are fetched automatically; other platforms need a transcript or upload."
+                ? "Captions are fetched automatically and the video is saved in-app when possible."
                 : tFormat === "plain"
                   ? "Add timecoded SRT/VTT text to enable clipping."
                   : "The AI returns up to 8 ranked, non-overlapping clips."}

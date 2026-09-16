@@ -15,11 +15,17 @@ import { detectPlatform } from "../lib/video-platforms";
  * NoirOps and can be rendered client-side.
  *
  * Tier 2 (optional, zero code when configured): an external extractor
- * service (Apify actor, RapidAPI, self-hosted yt-dlp API, etc.). Set
- * MEDIA_EXTRACTOR_URL to an endpoint that returns { url } for a social
- * link and YouTube/TikTok/Instagram/X/Facebook videos are fetched into
- * storage the same way. Without it, those platforms still clip via
- * captions/transcript exactly as before (nothing is removed).
+ * service. Supported shapes, in priority order:
+ *   • Cobalt-style REST API (self-hosted or compatible instance): POST {url}
+ *     → { status: "tunnel" | "redirect" | "stream", url }.
+ *   • Generic JSON endpoint: GET {base}/extract?url=... → { url }.
+ *   • Template endpoint: MEDIA_EXTRACTOR_URL containing "{url}" is used as a
+ *     GET template with the link URL-encoded in place.
+ * Set MEDIA_EXTRACTOR_URL (and optionally MEDIA_EXTRACTOR_API_KEY — sent as
+ * `Authorization: Api-Key`, `Authorization: Bearer`, and `X-API-Key`) in the
+ * project's Keys tab and YouTube/TikTok/Instagram/X/Facebook videos are
+ * fetched into storage the same way. Without it, those platforms still clip
+ * via captions/transcript exactly as before (nothing is removed).
  */
 
 // Node actions have a 512 MiB memory ceiling, so server-side fetches are
@@ -30,6 +36,18 @@ const FETCH_TIMEOUT_MS = 8 * 60 * 1000;
 
 const UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
+
+/** Platforms that need the extractor tier for server-side media fetch. */
+const EXTRACTOR_PLATFORMS = new Set([
+  "youtube",
+  "tiktok",
+  "instagram",
+  "twitter",
+  "facebook",
+  "twitch",
+  "linkedin",
+  "dailymotion",
+]);
 
 interface ResolvedMedia {
   url: string;
@@ -74,10 +92,13 @@ export const ingestLinkMedia = action({
       }
 
       if (!resolved) {
+        const hint =
+          EXTRACTOR_PLATFORMS.has(platformId) && !extractorBase
+            ? "Server-side video fetch for this platform needs an extractor service (set MEDIA_EXTRACTOR_URL in the Keys tab). Analysis continues via captions/transcript, or upload the file in the Video tab."
+            : "This platform does not expose a downloadable video publicly. Upload the file or add a transcript instead.";
         await ctx.runMutation(internal.videoClips.markSourceMediaFailedInternal, {
           sourceId: args.sourceId,
-          errorMessage:
-            "This platform does not expose a downloadable video publicly. Upload the file or add a transcript instead.",
+          errorMessage: hint,
         });
         return { stored: false, reason: "no-direct-media" };
       }
@@ -194,24 +215,97 @@ export const enrichAndIngestLink = action({
 
 // ── Tier 2: external extractor service ──────────────────────
 
+function extractorHeaders(): Record<string, string> {
+  const headers: Record<string, string> = { Accept: "application/json" };
+  const key = process.env.MEDIA_EXTRACTOR_API_KEY;
+  if (key) {
+    // Cover Cobalt (`Authorization: Api-Key`), bearer-style services, and
+    // RapidAPI-style proxies. Extra headers are ignored by services that
+    // don't use them.
+    headers["Authorization"] = `Api-Key ${key}`;
+    headers["X-API-Key"] = key;
+  }
+  return headers;
+}
+
+/** Accept the common success/error shapes extractor services return. */
+function parseExtractorPayload(data: unknown): ResolvedMedia | null {
+  if (!data || typeof data !== "object") return null;
+  const obj = data as Record<string, unknown>;
+  // Cobalt error shape: { status: "error", error: { code } }
+  if (obj.status === "error") return null;
+  const nested = (obj.data && typeof obj.data === "object" ? obj.data : undefined) as
+    | Record<string, unknown>
+    | undefined;
+  const candidates = [
+    obj.url,
+    obj.videoUrl,
+    obj.downloadUrl,
+    nested?.url,
+    nested?.videoUrl,
+  ];
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate.startsWith("http")) {
+      return { url: candidate };
+    }
+  }
+  return null;
+}
+
 async function resolveViaExtractor(base: string, url: string): Promise<ResolvedMedia | null> {
-  try {
-    const endpoint = base.includes("{url}")
-      ? base.replace("{url}", encodeURIComponent(url))
-      : `${base.replace(/\/$/, "")}/extract?url=${encodeURIComponent(url)}`;
-    const res = await fetch(endpoint, {
-      headers: { Accept: "application/json" },
-      signal: AbortSignal.timeout(15000),
-    });
-    if (!res.ok) return null;
-    const data = (await res.json()) as { url?: string; contentType?: string };
-    if (typeof data.url === "string" && data.url.startsWith("http")) {
-      return { url: data.url, contentType: data.contentType };
+  const headers = extractorHeaders();
+
+  // 1. Template endpoint: the URL is substituted into the configured string.
+  if (base.includes("{url}")) {
+    try {
+      const endpoint = base.replace("{url}", encodeURIComponent(url));
+      const res = await fetch(endpoint, {
+        headers,
+        signal: AbortSignal.timeout(20000),
+      });
+      if (res.ok) {
+        const parsed = parseExtractorPayload(await res.json().catch(() => null));
+        if (parsed) return parsed;
+      }
+    } catch {
+      // Fall through to other strategies.
     }
     return null;
-  } catch {
-    return null;
   }
+
+  const root = base.replace(/\/$/, "");
+
+  // 2. Cobalt-style: POST {url} at the API root.
+  try {
+    const res = await fetch(root, {
+      method: "POST",
+      headers: { ...headers, "Content-Type": "application/json" },
+      body: JSON.stringify({ url }),
+      signal: AbortSignal.timeout(20000),
+    });
+    if (res.ok) {
+      const parsed = parseExtractorPayload(await res.json().catch(() => null));
+      if (parsed) return parsed;
+    }
+  } catch {
+    // Fall through to the generic GET shape.
+  }
+
+  // 3. Generic JSON endpoint: GET {base}/extract?url=...
+  try {
+    const res = await fetch(`${root}/extract?url=${encodeURIComponent(url)}`, {
+      headers,
+      signal: AbortSignal.timeout(20000),
+    });
+    if (res.ok) {
+      const parsed = parseExtractorPayload(await res.json().catch(() => null));
+      if (parsed) return parsed;
+    }
+  } catch {
+    // All extractor strategies exhausted.
+  }
+
+  return null;
 }
 
 // ── Tier 1: keyless public resolvers ────────────────────────
