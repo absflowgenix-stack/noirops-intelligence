@@ -5,6 +5,7 @@ import { action } from "./_generated/server";
 import { api, internal } from "./_generated/api";
 import { EDIT_TYPES, TRANSITIONS, MOMENT_TYPES } from "../lib/video-platforms";
 import { parseTranscript, transcriptForPrompt, excerptForRange } from "../lib/transcript";
+import { OPENROUTER_BASE, aiGatewayKey, vlyGatewayBase, vlyGatewayKey } from "./gateway";
 
 /**
  * Read the integration key/base at call time (not module load) so actions
@@ -12,11 +13,11 @@ import { parseTranscript, transcriptForPrompt, excerptForRange } from "../lib/tr
  * registered via the CLI or the Keys tab without needing a code push.
  */
 function vlyKey(): string | undefined {
-  return process.env.VLY_INTEGRATION_KEY;
+  return vlyGatewayKey();
 }
 
 function vlyBase(): string {
-  return process.env.VLY_INTEGRATION_BASE_URL || "https://integrations.freebuff.com";
+  return vlyGatewayBase();
 }
 
 /** Cap the transcript fed to the model — long-form safe. */
@@ -28,21 +29,21 @@ async function callAI(
   temperature = 0.4,
   maxTokens = 3000,
 ): Promise<string> {
-  const key = vlyKey();
+  const key = aiGatewayKey();
   if (!key) {
     throw new Error(
-      "AI service not configured. Please add VLY_INTEGRATION_KEY to your environment.",
+      "AI service not configured. Please add AI_API_KEY to your environment.",
     );
   }
 
-  const res = await fetch(`${vlyBase()}/v1/chat/completions`, {
+  const res = await fetch(`${OPENROUTER_BASE}/chat/completions`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${key}`,
     },
     body: JSON.stringify({
-      model: "gpt-4o-mini",
+      model: "google/gemini-2.5-flash",
       messages,
       temperature,
       max_tokens: maxTokens,

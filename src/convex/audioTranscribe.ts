@@ -5,37 +5,42 @@ import { action } from "./_generated/server";
 import { api, internal } from "./_generated/api";
 import { parseTranscript } from "../lib/transcript";
 import { buildSrtFromSegments, type TimedSegment } from "../lib/timed-text";
+import { OPENROUTER_BASE, aiGatewayKey } from "./gateway";
 
 /**
- * Read the integration key/base at call time (not module load) so actions
- * always see the freshest deployment environment — e.g. after the key is
- * registered via the CLI or the Keys tab without needing a code push.
+ * Audio transcription via OpenRouter (deployment-provisioned AI_API_KEY).
+ *
+ * Why not Whisper: the platform's integration gateway exposes no audio route
+ * (verified: `Route POST:/v1/llm/audio/transcriptions not found`), so
+ * transcription runs on an audio-capable multimodal model (Gemini Flash)
+ * through OpenRouter's OpenAI-compatible chat completions — validated
+ * working end-to-end from this runtime. Audio goes up as a base64
+ * `input_audio` content part; the model replies with SRT-formatted cues with
+ * chunk-local timestamps, which are rebased onto the global timeline below.
  */
-function vlyKey(): string | undefined {
-  return process.env.VLY_INTEGRATION_KEY;
-}
 
-function vlyBase(): string {
-  return process.env.VLY_INTEGRATION_BASE_URL || "https://integrations.freebuff.com";
-}
-
-const WHISPER_MODEL = "whisper-1";
-/** 25 MB Whisper limit — chunks are ~25s ≈ 0.8 MB, far below it. */
-const MAX_CHUNK_BYTES = 24 * 1024 * 1024;
+/** Gemini handles audio input + SRT output well and is cheap per request. */
+const TRANSCRIBE_MODEL = "google/gemini-2.5-flash";
+/** Sanity cap per chunk (~1.4 MB base64 in JSON). Chunks are ~0.8 MB raw. */
+const MAX_CHUNK_BYTES = 12 * 1024 * 1024;
 /** Per-attempt ceiling for one chunk's transcription request. */
-const WHISPER_TIMEOUT_MS = 3 * 60 * 1000;
+const TRANSCRIBE_TIMEOUT_MS = 3 * 60 * 1000;
 /** One retry for transient network blips (DNS/TLS/connection resets). */
-const WHISPER_ATTEMPTS = 2;
+const TRANSCRIBE_ATTEMPTS = 2;
 /**
- * Parallel Whisper requests. Kept at 1: the runtime's outbound network bridge
- * has failed with EBUSY even on small bodies, so all evidence points at the
- * FormData/Blob serialization path itself — requests are serialized to keep
- * exactly one body crossing the bridge at a time.
+ * Parallel transcription requests. Kept at 1: bodies are serialized JSON and
+ * the runtime's outbound bridge has been the historical failure point.
  */
-const WHISPER_CONCURRENCY = 1;
+const TRANSCRIBE_CONCURRENCY = 1;
+
+const SRT_PROMPT =
+  "Transcribe this audio as SRT subtitles. Output ONLY SRT: numbered cues, " +
+  "timestamps in the exact format 00:00:01,000 --> 00:00:03,500 measured " +
+  "from the start of THIS audio clip, then the spoken words. No markdown, " +
+  "no commentary, no blank cues.";
 
 /**
- * Undici wraps the real reason (ENOTFOUND, ECONNREFUSED, EBUSY, TLS, …) in
+ * Undici wraps the real reason (ENOTFOUND, ECONNREFUSED, TLS, …) in
  * `error.cause` and surfaces only "fetch failed" — dig the cause out so the
  * message is actionable in the UI and logs.
  */
@@ -55,10 +60,10 @@ function describeError(err: unknown): string {
 }
 
 /**
- * Transcribe the stored WAV chunks of a locally-uploaded video with Whisper
- * (via the VLY gateway). Each chunk's transcript is rebased from chunk-local
- * time to the global video timeline via `chunkStarts`, merged into one SRT,
- * then handed off to the existing analyzeSource clipping action.
+ * Transcribe the stored WAV chunks of a locally-uploaded video. Each chunk's
+ * transcript is rebased from chunk-local time to the global video timeline
+ * via `chunkStarts`, merged into one SRT, then handed off to the existing
+ * analyzeSource clipping action.
  */
 export const transcribeFromStorage = action({
   args: {
@@ -70,13 +75,13 @@ export const transcribeFromStorage = action({
     focusTopic: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    if (!vlyKey()) {
+    if (!aiGatewayKey()) {
       await ctx.runMutation(internal.videoClips.markSourceFailedInternal, {
         sourceId: args.sourceId,
         errorMessage:
-          "AI service not configured. Please add VLY_INTEGRATION_KEY to your environment.",
+          "AI service not configured. Please add AI_API_KEY to your environment.",
       });
-      throw new Error("AI service not configured (missing VLY_INTEGRATION_KEY).");
+      throw new Error("AI service not configured (missing AI_API_KEY).");
     }
 
     try {
@@ -97,16 +102,15 @@ export const transcribeFromStorage = action({
           if (blob.size > MAX_CHUNK_BYTES) {
             throw new Error("Audio chunk exceeds the transcription size limit.");
           }
-          // Materialize a fresh in-memory copy: file-backed Blobs must not
-          // cross the runtime's network bridge inside a request body.
+          // Materialize a fresh in-memory copy before encoding.
           const bytes: Uint8Array<ArrayBuffer> = new Uint8Array(await blob.arrayBuffer());
-          rawResults[i] = await callWhisper(bytes, args.language);
+          rawResults[i] = await callTranscribe(bytes, args.language);
         }
       };
 
       await Promise.all(
         Array.from(
-          { length: Math.min(WHISPER_CONCURRENCY, args.audioStorageIds.length) },
+          { length: Math.min(TRANSCRIBE_CONCURRENCY, args.audioStorageIds.length) },
           () => worker(),
         ),
       );
@@ -116,7 +120,7 @@ export const transcribeFromStorage = action({
 
       for (let i = 0; i < rawResults.length; i++) {
         const chunkOffset = args.chunkStarts?.[i] ?? 0;
-        const localSegments = normalizeWhisperOutput(rawResults[i] ?? "");
+        const localSegments = normalizeTranscriptOutput(rawResults[i] ?? "");
         if (localSegments.length === 0) sawUntimedOutput = true;
         for (const seg of localSegments) {
           allSegments.push({
@@ -135,7 +139,7 @@ export const transcribeFromStorage = action({
         );
       }
 
-      // De-duplicate cues duplicated by the 1.5s chunk overlaps.
+      // De-duplicate cues duplicated by the chunk overlaps.
       const deduped = dedupeOverlappingSegments(allSegments);
 
       const mergedSrt = buildSrtFromSegments(deduped);
@@ -167,52 +171,83 @@ export const transcribeFromStorage = action({
   },
 });
 
+/** Error that must not be retried (auth/credits/validation failures). */
+class DeterministicError extends Error {}
+
 /**
- * POST one in-memory WAV chunk to the Whisper-compatible endpoint. The
- * multipart body is hand-built as ONE flat, freshly-allocated ArrayBuffer —
- * no FormData, no Blob, no file-backed or browser-bridge objects anywhere in
- * the request path. (The runtime bridge fails with EBUSY when serializing
- * FormData/Blob bodies, even small in-memory ones.)
+ * POST one in-memory WAV chunk to OpenRouter as a multimodal chat completion
+ * and return the model's SRT-formatted reply. The body is plain JSON (base64
+ * audio inline) — no multipart, no Blob, nothing for the runtime bridge to
+ * mishandle.
  */
-async function callWhisper(
+async function callTranscribe(
   bytes: Uint8Array<ArrayBuffer>,
   language?: string,
 ): Promise<string> {
-  const key = vlyKey();
+  const key = aiGatewayKey();
   if (!key) {
-    throw new Error("AI service not configured (missing VLY_INTEGRATION_KEY).");
+    throw new Error("AI service not configured (missing AI_API_KEY).");
   }
-  const endpoint = `${vlyBase()}/v1/audio/transcriptions`;
+  const endpoint = `${OPENROUTER_BASE}/chat/completions`;
   let lastError: unknown;
 
-  for (let attempt = 0; attempt < WHISPER_ATTEMPTS; attempt++) {
+  for (let attempt = 0; attempt < TRANSCRIBE_ATTEMPTS; attempt++) {
     try {
-      const body = buildMultipartBody(bytes, language);
+      const prompt = language && language.trim()
+        ? `${SRT_PROMPT} The audio is in ${language.trim()}.`
+        : SRT_PROMPT;
+
       const res = await fetch(endpoint, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${key}`,
-          "Content-Type": `multipart/form-data; boundary=${MULTIPART_BOUNDARY}`,
-          "Content-Length": String(body.byteLength),
+          "Content-Type": "application/json",
         },
-        body,
-        signal: AbortSignal.timeout(WHISPER_TIMEOUT_MS),
+        body: JSON.stringify({
+          model: TRANSCRIBE_MODEL,
+          temperature: 0,
+          max_tokens: 8000,
+          messages: [
+            {
+              role: "user",
+              content: [
+                { type: "text", text: prompt },
+                {
+                  type: "input_audio",
+                  input_audio: {
+                    data: Buffer.from(bytes).toString("base64"),
+                    format: "wav",
+                  },
+                },
+              ],
+            },
+          ],
+        }),
+        signal: AbortSignal.timeout(TRANSCRIBE_TIMEOUT_MS),
       });
 
       if (!res.ok) {
         const errText = await res.text().catch(() => "Unknown error");
-        const message = `Transcription service error (${res.status}): ${errText.slice(0, 200)}`;
-        // 4xx responses are deterministic (auth/validation) — don't retry them.
+        const message = `Transcription service error (${res.status}): ${errText.slice(0, 300)}`;
+        // 4xx responses are deterministic (auth/credits/validation) — don't retry.
         if (res.status >= 400 && res.status < 500) {
           throw new DeterministicError(message);
         }
         throw new Error(message);
       }
-      return await res.text();
+
+      const data = (await res.json()) as {
+        choices?: { message?: { content?: string } }[];
+      };
+      const content = data.choices?.[0]?.message?.content ?? "";
+      if (!content.trim()) {
+        throw new Error("Transcription model returned an empty response.");
+      }
+      return content;
     } catch (err) {
       lastError = err;
       if (err instanceof DeterministicError) throw err;
-      if (attempt < WHISPER_ATTEMPTS - 1) {
+      if (attempt < TRANSCRIBE_ATTEMPTS - 1) {
         await new Promise((resolve) => setTimeout(resolve, 1500));
         continue;
       }
@@ -224,65 +259,23 @@ async function callWhisper(
   );
 }
 
-/** Error that must not be retried (auth/validation failures from the service). */
-class DeterministicError extends Error {}
-
-/** Field values sent with every transcription request. */
-const MULTIPART_FIELDS: [string, string][] = [
-  ["model", WHISPER_MODEL],
-  ["response_format", "srt"],
-];
-
-const MULTIPART_BOUNDARY = "----noirops-ebusy-safe-boundary";
-
 /**
- * Serialize the whole multipart/form-data request into one flat
- * ArrayBuffer: ASCII pre/postamble + raw PCM bytes spliced in the middle.
- * The body is a BufferSource (allowed by fetch types), so no FormData/Blob
- * object ever exists for the bridge to mishandle.
+ * Normalize a transcription model's reply into chunk-local timed segments.
+ * Handles: raw SRT text (optionally wrapped in markdown code fences), JSON
+ * with `segments`, and JSON with only `text` (untimed — returned as empty so
+ * the caller can report it).
  */
-function buildMultipartBody(
-  bytes: Uint8Array<ArrayBuffer>,
-  language?: string,
-): Uint8Array<ArrayBuffer> {
-  const enc = new TextEncoder();
-  const fields: [string, string][] = [...MULTIPART_FIELDS];
-  if (language && language.trim()) fields.push(["language", language.trim()]);
-
-  const parts: Uint8Array<ArrayBuffer>[] = [];
-  for (const [name, value] of fields) {
-    parts.push(
-      enc.encode(
-        `--${MULTIPART_BOUNDARY}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`,
-      ) as Uint8Array<ArrayBuffer>,
-    );
-  }
-  parts.push(
-    enc.encode(
-      `--${MULTIPART_BOUNDARY}\r\nContent-Disposition: form-data; name="file"; filename="audio.wav"\r\nContent-Type: audio/wav\r\n\r\n`,
-    ) as Uint8Array<ArrayBuffer>,
-  );
-  parts.push(bytes);
-  parts.push(enc.encode(`\r\n--${MULTIPART_BOUNDARY}--\r\n`) as Uint8Array<ArrayBuffer>);
-
-  const total = parts.reduce((acc, p) => acc + p.byteLength, 0);
-  const out = new Uint8Array(new ArrayBuffer(total));
-  let off = 0;
-  for (const p of parts) {
-    out.set(p, off);
-    off += p.byteLength;
-  }
-  return out;
-}
-
-/**
- * Normalize a Whisper response into chunk-local timed segments.
- * Handles: raw SRT text, JSON with `segments` (start/end/text), and JSON with
- * only `text` (untimed — returned as empty so the caller can report it).
- */
-function normalizeWhisperOutput(raw: string): TimedSegment[] {
-  const trimmed = (raw || "").trim();
+function normalizeTranscriptOutput(raw: string): TimedSegment[] {
+  let trimmed = (raw || "").trim();
   if (!trimmed) return [];
+
+  // Strip markdown code fences the model may add around the SRT.
+  if (trimmed.startsWith("```")) {
+    trimmed = trimmed
+      .replace(/^```[a-zA-Z]*\s*/, "")
+      .replace(/```\s*$/, "")
+      .trim();
+  }
 
   if (trimmed.startsWith("{")) {
     try {
@@ -301,13 +294,14 @@ function normalizeWhisperOutput(raw: string): TimedSegment[] {
           .filter((s) => s.text && s.end > s.start);
       }
       if (data.srt) return srtToSegments(data.srt);
+      if (data.text) return srtToSegments(data.text);
       return [];
     } catch {
       return [];
     }
   }
 
-  // Plain SRT (the requested response_format).
+  // Plain SRT (the requested format).
   return srtToSegments(trimmed);
 }
 
