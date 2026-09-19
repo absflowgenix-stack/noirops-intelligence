@@ -27,11 +27,12 @@ const WHISPER_TIMEOUT_MS = 3 * 60 * 1000;
 /** One retry for transient network blips (DNS/TLS/connection resets). */
 const WHISPER_ATTEMPTS = 2;
 /**
- * Parallel Whisper requests. Smaller chunks mean more requests, so a few run
- * concurrently to keep long videos well inside the action time limit. Kept
- * modest so the egress bridge never sees many simultaneous body writes.
+ * Parallel Whisper requests. Kept at 1: the runtime's outbound network bridge
+ * has failed with EBUSY even on small bodies, so all evidence points at the
+ * FormData/Blob serialization path itself — requests are serialized to keep
+ * exactly one body crossing the bridge at a time.
  */
-const WHISPER_CONCURRENCY = 3;
+const WHISPER_CONCURRENCY = 1;
 
 /**
  * Undici wraps the real reason (ENOTFOUND, ECONNREFUSED, EBUSY, TLS, …) in
@@ -167,9 +168,11 @@ export const transcribeFromStorage = action({
 });
 
 /**
- * POST one in-memory WAV chunk to the Whisper-compatible endpoint. The body
- * is built from a fresh Uint8Array-backed Blob (never a storage Blob) and is
- * small (~0.8 MB) so the egress bridge can carry it.
+ * POST one in-memory WAV chunk to the Whisper-compatible endpoint. The
+ * multipart body is hand-built as ONE flat, freshly-allocated ArrayBuffer —
+ * no FormData, no Blob, no file-backed or browser-bridge objects anywhere in
+ * the request path. (The runtime bridge fails with EBUSY when serializing
+ * FormData/Blob bodies, even small in-memory ones.)
  */
 async function callWhisper(
   bytes: Uint8Array<ArrayBuffer>,
@@ -184,18 +187,15 @@ async function callWhisper(
 
   for (let attempt = 0; attempt < WHISPER_ATTEMPTS; attempt++) {
     try {
-      const form = new FormData();
-      form.append("file", new Blob([bytes], { type: "audio/wav" }), "audio.wav");
-      form.append("model", WHISPER_MODEL);
-      form.append("response_format", "srt");
-      if (language && language.trim()) {
-        form.append("language", language.trim());
-      }
-
+      const body = buildMultipartBody(bytes, language);
       const res = await fetch(endpoint, {
         method: "POST",
-        headers: { Authorization: `Bearer ${key}` },
-        body: form,
+        headers: {
+          Authorization: `Bearer ${key}`,
+          "Content-Type": `multipart/form-data; boundary=${MULTIPART_BOUNDARY}`,
+          "Content-Length": String(body.byteLength),
+        },
+        body,
         signal: AbortSignal.timeout(WHISPER_TIMEOUT_MS),
       });
 
@@ -226,6 +226,54 @@ async function callWhisper(
 
 /** Error that must not be retried (auth/validation failures from the service). */
 class DeterministicError extends Error {}
+
+/** Field values sent with every transcription request. */
+const MULTIPART_FIELDS: [string, string][] = [
+  ["model", WHISPER_MODEL],
+  ["response_format", "srt"],
+];
+
+const MULTIPART_BOUNDARY = "----noirops-ebusy-safe-boundary";
+
+/**
+ * Serialize the whole multipart/form-data request into one flat
+ * ArrayBuffer: ASCII pre/postamble + raw PCM bytes spliced in the middle.
+ * The body is a BufferSource (allowed by fetch types), so no FormData/Blob
+ * object ever exists for the bridge to mishandle.
+ */
+function buildMultipartBody(
+  bytes: Uint8Array<ArrayBuffer>,
+  language?: string,
+): Uint8Array<ArrayBuffer> {
+  const enc = new TextEncoder();
+  const fields: [string, string][] = [...MULTIPART_FIELDS];
+  if (language && language.trim()) fields.push(["language", language.trim()]);
+
+  const parts: Uint8Array<ArrayBuffer>[] = [];
+  for (const [name, value] of fields) {
+    parts.push(
+      enc.encode(
+        `--${MULTIPART_BOUNDARY}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`,
+      ) as Uint8Array<ArrayBuffer>,
+    );
+  }
+  parts.push(
+    enc.encode(
+      `--${MULTIPART_BOUNDARY}\r\nContent-Disposition: form-data; name="file"; filename="audio.wav"\r\nContent-Type: audio/wav\r\n\r\n`,
+    ) as Uint8Array<ArrayBuffer>,
+  );
+  parts.push(bytes);
+  parts.push(enc.encode(`\r\n--${MULTIPART_BOUNDARY}--\r\n`) as Uint8Array<ArrayBuffer>);
+
+  const total = parts.reduce((acc, p) => acc + p.byteLength, 0);
+  const out = new Uint8Array(new ArrayBuffer(total));
+  let off = 0;
+  for (const p of parts) {
+    out.set(p, off);
+    off += p.byteLength;
+  }
+  return out;
+}
 
 /**
  * Normalize a Whisper response into chunk-local timed segments.
