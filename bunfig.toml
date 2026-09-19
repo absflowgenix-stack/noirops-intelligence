@@ -1,0 +1,16 @@
+# Build-container hardening.
+#
+# The deploy pipeline runs a literal `tsc -b && vite build`. A previous
+# aborted install left the container's bun cache / node_modules in a state
+# where bare `tsc` resolved to a registry troll package ("This is not the
+# tsc command you are looking for"). Bun's incremental install can consider
+# such a node_modules "complete" and never repair it, so we force fresh
+# registry downloads during installs and keep a `tsc` alias dependency that
+# always re-extracts the real TypeScript compiler under that exact name.
+# Project-level `tsc`/`vite` tooling also lives in `dependencies` and
+# `scripts/ensure-build-bins.cjs` (postinstall) rebuilds .bin links.
+[install.cache]
+disable = true
+
+[install]
+exact = true
