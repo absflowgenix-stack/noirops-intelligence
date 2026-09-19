@@ -8,7 +8,8 @@
     "build": "node node_modules/typescript/bin/tsc -b && node node_modules/vite/bin/vite.js build",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "postinstall": "node scripts/ensure-build-bins.cjs"
   },
   "dependencies": {
     "@convex-dev/auth": "0.0.90",
@@ -68,6 +69,7 @@
     "sonner": "2.0.7",
     "tailwind-merge": "3.6.0",
     "tailwindcss": "4.3.2",
+    "tsc": "npm:typescript@5.9.3",
     "typescript": "5.9.3",
     "vaul": "1.1.2",
     "vite": "7.3.6",
