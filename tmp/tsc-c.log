@@ -1,0 +1,8 @@
+[96msrc/convex/videoClips.ts[0m:[93m175[0m:[93m30[0m - [91merror[0m[90m TS2339: [0mProperty 'generateUrl' does not exist on type 'StorageWriter'.
+
+[7m175[0m     return await ctx.storage.generateUrl();
+[7m   [0m [91m                             ~~~~~~~~~~~[0m
+
+
+Found 1 error.
+

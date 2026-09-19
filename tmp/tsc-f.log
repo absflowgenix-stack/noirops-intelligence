@@ -1,0 +1,113 @@
+[96msrc/components/clips/AIVideoClipping.tsx[0m:[93m31[0m:[93m3[0m - [91merror[0m[90m TS2305: [0mModule '"@/lib/video-platforms"' has no exported member 'detectPlatform'.
+
+[7m31[0m   detectPlatform,
+[7m  [0m [91m  ~~~~~~~~~~~~~~[0m
+
+[96msrc/components/clips/AIVideoClipping.tsx[0m:[93m32[0m:[93m3[0m - [91merror[0m[90m TS2305: [0mModule '"@/lib/video-platforms"' has no exported member 'formatDuration'.
+
+[7m32[0m   formatDuration,
+[7m  [0m [91m  ~~~~~~~~~~~~~~[0m
+
+[96msrc/components/clips/AIVideoClipping.tsx[0m:[93m33[0m:[93m3[0m - [91merror[0m[90m TS2305: [0mModule '"@/lib/video-platforms"' has no exported member 'formatTimecode'.
+
+[7m33[0m   formatTimecode,
+[7m  [0m [91m  ~~~~~~~~~~~~~~[0m
+
+[96msrc/components/clips/ClipCard.tsx[0m:[93m14[0m:[93m3[0m - [91merror[0m[90m TS2305: [0mModule '"@/lib/video-platforms"' has no exported member 'formatDuration'.
+
+[7m14[0m   formatDuration,
+[7m  [0m [91m  ~~~~~~~~~~~~~~[0m
+
+[96msrc/components/clips/ClipCard.tsx[0m:[93m15[0m:[93m3[0m - [91merror[0m[90m TS2305: [0mModule '"@/lib/video-platforms"' has no exported member 'formatTimecode'.
+
+[7m15[0m   formatTimecode,
+[7m  [0m [91m  ~~~~~~~~~~~~~~[0m
+
+[96msrc/components/clips/ClipCard.tsx[0m:[93m16[0m:[93m3[0m - [91merror[0m[90m TS2305: [0mModule '"@/lib/video-platforms"' has no exported member 'EDIT_TYPES'.
+
+[7m16[0m   EDIT_TYPES,
+[7m  [0m [91m  ~~~~~~~~~~[0m
+
+[96msrc/components/clips/ClipCard.tsx[0m:[93m17[0m:[93m3[0m - [91merror[0m[90m TS2305: [0mModule '"@/lib/video-platforms"' has no exported member 'TRANSITIONS'.
+
+[7m17[0m   TRANSITIONS,
+[7m  [0m [91m  ~~~~~~~~~~~[0m
+
+[96msrc/components/clips/ClipCard.tsx[0m:[93m18[0m:[93m3[0m - [91merror[0m[90m TS2305: [0mModule '"@/lib/video-platforms"' has no exported member 'momentTypeStyle'.
+
+[7m18[0m   momentTypeStyle,
+[7m  [0m [91m  ~~~~~~~~~~~~~~~[0m
+
+[96msrc/components/clips/ClipCard.tsx[0m:[93m19[0m:[93m3[0m - [91merror[0m[90m TS2305: [0mModule '"@/lib/video-platforms"' has no exported member 'momentTypeLabel'.
+
+[7m19[0m   momentTypeLabel,
+[7m  [0m [91m  ~~~~~~~~~~~~~~~[0m
+
+[96msrc/components/clips/ClipCard.tsx[0m:[93m20[0m:[93m3[0m - [91merror[0m[90m TS2305: [0mModule '"@/lib/video-platforms"' has no exported member 'scoreTone'.
+
+[7m20[0m   scoreTone,
+[7m  [0m [91m  ~~~~~~~~~[0m
+
+[96msrc/components/clips/ClipCard.tsx[0m:[93m43[0m:[93m27[0m - [91merror[0m[90m TS7006: [0mParameter 'e' implicitly has an 'any' type.
+
+[7m43[0m   return EDIT_TYPES.find((e) => e.id === id);
+[7m  [0m [91m                          ~[0m
+
+[96msrc/components/clips/ClipCard.tsx[0m:[93m46[0m:[93m28[0m - [91merror[0m[90m TS7006: [0mParameter 't' implicitly has an 'any' type.
+
+[7m46[0m   return TRANSITIONS.find((t) => t.id === id);
+[7m  [0m [91m                           ~[0m
+
+[96msrc/convex/platformIngest.ts[0m:[93m6[0m:[93m10[0m - [91merror[0m[90m TS2305: [0mModule '"../lib/video-platforms"' has no exported member 'detectPlatform'.
+
+[7m6[0m import { detectPlatform } from "../lib/video-platforms";
+[7m [0m [91m         ~~~~~~~~~~~~~~[0m
+
+[96msrc/convex/videoClipping.ts[0m:[93m6[0m:[93m10[0m - [91merror[0m[90m TS2305: [0mModule '"../lib/video-platforms"' has no exported member 'EDIT_TYPES'.
+
+[7m6[0m import { EDIT_TYPES, TRANSITIONS, MOMENT_TYPES } from "../lib/video-platforms";
+[7m [0m [91m         ~~~~~~~~~~[0m
+
+[96msrc/convex/videoClipping.ts[0m:[93m6[0m:[93m22[0m - [91merror[0m[90m TS2305: [0mModule '"../lib/video-platforms"' has no exported member 'TRANSITIONS'.
+
+[7m6[0m import { EDIT_TYPES, TRANSITIONS, MOMENT_TYPES } from "../lib/video-platforms";
+[7m [0m [91m                     ~~~~~~~~~~~[0m
+
+[96msrc/convex/videoClipping.ts[0m:[93m6[0m:[93m35[0m - [91merror[0m[90m TS2305: [0mModule '"../lib/video-platforms"' has no exported member 'MOMENT_TYPES'.
+
+[7m6[0m import { EDIT_TYPES, TRANSITIONS, MOMENT_TYPES } from "../lib/video-platforms";
+[7m [0m [91m                                  ~~~~~~~~~~~~[0m
+
+[96msrc/convex/videoClipping.ts[0m:[93m91[0m:[93m50[0m - [91merror[0m[90m TS7006: [0mParameter 'm' implicitly has an 'any' type.
+
+[7m91[0m       "momentType": "one of: ${MOMENT_TYPES.map((m) => m.id).join(", ")}",
+[7m  [0m [91m                                                 ~[0m
+
+[96msrc/convex/videoClipping.ts[0m:[93m98[0m:[93m55[0m - [91merror[0m[90m TS7006: [0mParameter 'e' implicitly has an 'any' type.
+
+[7m98[0m       "edits": [ { "type": "one of: ${EDIT_TYPES.map((e) => e.id).join(", ")}", "atSec": 130, "note": "what to do and why" } ],
+[7m  [0m [91m                                                      ~[0m
+
+[96msrc/convex/videoClipping.ts[0m:[93m99[0m:[93m62[0m - [91merror[0m[90m TS7006: [0mParameter 't' implicitly has an 'any' type.
+
+[7m99[0m       "transitions": [ { "type": "one of: ${TRANSITIONS.map((t) => t.id).join(", ")}", "atSec": 140, "note": "which transition and why" } ]
+[7m  [0m [91m                                                             ~[0m
+
+[96msrc/convex/videoClipping.ts[0m:[93m234[0m:[93m58[0m - [91merror[0m[90m TS7006: [0mParameter 'e' implicitly has an 'any' type.
+
+[7m234[0m   const validEditTypes = new Set<string>(EDIT_TYPES.map((e) => e.id));
+[7m   [0m [91m                                                         ~[0m
+
+[96msrc/convex/videoClipping.ts[0m:[93m235[0m:[93m65[0m - [91merror[0m[90m TS7006: [0mParameter 't' implicitly has an 'any' type.
+
+[7m235[0m   const validTransitionTypes = new Set<string>(TRANSITIONS.map((t) => t.id));
+[7m   [0m [91m                                                                ~[0m
+
+[96msrc/convex/videoClipping.ts[0m:[93m236[0m:[93m62[0m - [91merror[0m[90m TS7006: [0mParameter 'm' implicitly has an 'any' type.
+
+[7m236[0m   const validMomentTypes = new Set<string>(MOMENT_TYPES.map((m) => m.id));
+[7m   [0m [91m                                                             ~[0m
+
+
+Found 22 errors.
+

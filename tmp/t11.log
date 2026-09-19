@@ -1,0 +1,10 @@
+[96msrc/pages/dashboard/VideoClips.tsx[0m:[93m113[0m:[93m29[0m - [91merror[0m[90m TS2345: [0mArgument of type 'RegisteredAction<"public", { durationSec?: number | undefined; focusTopic?: string | undefined; transcriptText: string; sourceId: Id<"videoSources">; }, Promise<{ clipCount: number; durationSec: number; }>>' is not assignable to parameter of type 'FunctionReference<"action">'.
+  Type 'RegisteredAction<"public", { durationSec?: number | undefined; focusTopic?: string | undefined; transcriptText: string; sourceId: Id<"videoSources">; }, Promise<{ clipCount: number; durationSec: number; }>>' is missing the following properties from type 'FunctionReference<"action">': _type, _args, _returnType, _componentPath
+
+[7m113[0m   const analyze = useAction(analyzeSource);
+[7m   [0m [91m                            ~~~~~~~~~~~~~[0m
+
+
+Found 1 error.
+
+TSC_EXIT=0

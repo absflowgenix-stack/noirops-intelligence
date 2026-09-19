@@ -1,0 +1,49 @@
+[96msrc/components/clips/AIVideoClipping.tsx[0m:[93m166[0m:[93m28[0m - [91merror[0m[90m TS2344: [0mType '"__storage"' does not satisfy the constraint 'TableNames | SystemTableNames'.
+
+[7m166[0m       const storageIds: Id<"__storage">[] = [];
+[7m   [0m [91m                           ~~~~~~~~~~~[0m
+
+[96msrc/components/clips/AIVideoClipping.tsx[0m:[93m177[0m:[93m41[0m - [91merror[0m[90m TS2344: [0mType '"__storage"' does not satisfy the constraint 'TableNames | SystemTableNames'.
+
+[7m177[0m         storageIds.push(storageId as Id<"__storage">);
+[7m   [0m [91m                                        ~~~~~~~~~~~[0m
+
+[96msrc/components/clips/AIVideoClipping.tsx[0m:[93m191[0m:[93m9[0m - [91merror[0m[90m TS2322: [0mType 'Id<"__storage">[]' is not assignable to type 'Id<"_storage">[]'.
+  Type 'Id<"__storage">' is not assignable to type 'Id<"_storage">'.
+    Type 'Id<"__storage">' is not assignable to type '{ __tableName: "_storage"; }'.
+      Types of property '__tableName' are incompatible.
+        Type '"__storage"' is not assignable to type '"_storage"'.
+
+[7m191[0m         audioStorageIds: storageIds,
+[7m   [0m [91m        ~~~~~~~~~~~~~~~[0m
+
+  [96mnode_modules/convex/dist/esm-types/type_utils.d.ts[0m:[93m11[0m:[93m97[0m
+    [7m11[0m export type Expand<ObjectType extends Record<any, any>> = ObjectType extends Record<any, any> ? {
+    [7m  [0m [96m                                                                                                ~[0m
+    [7m12[0m     [Key in keyof ObjectType]: ObjectType[Key];
+    [7m  [0m [96m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+    [7m13[0m } : never;
+    [7m  [0m [96m~[0m
+    The expected type comes from property 'audioStorageIds' which is declared here on type '{ fileSizeBytes?: number | undefined; mimeType?: string | undefined; durationSec?: number | undefined; audioStorageIds: Id<"_storage">[]; sourceId: Id<"videoSources">; }'
+
+[96msrc/components/clips/AIVideoClipping.tsx[0m:[93m201[0m:[93m9[0m - [91merror[0m[90m TS2322: [0mType 'Id<"__storage">[]' is not assignable to type 'Id<"_storage">[]'.
+  Type 'Id<"__storage">' is not assignable to type 'Id<"_storage">'.
+    Type 'Id<"__storage">' is not assignable to type '{ __tableName: "_storage"; }'.
+      Types of property '__tableName' are incompatible.
+        Type '"__storage"' is not assignable to type '"_storage"'.
+
+[7m201[0m         audioStorageIds: storageIds,
+[7m   [0m [91m        ~~~~~~~~~~~~~~~[0m
+
+  [96mnode_modules/convex/dist/esm-types/type_utils.d.ts[0m:[93m11[0m:[93m97[0m
+    [7m11[0m export type Expand<ObjectType extends Record<any, any>> = ObjectType extends Record<any, any> ? {
+    [7m  [0m [96m                                                                                                ~[0m
+    [7m12[0m     [Key in keyof ObjectType]: ObjectType[Key];
+    [7m  [0m [96m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+    [7m13[0m } : never;
+    [7m  [0m [96m~[0m
+    The expected type comes from property 'audioStorageIds' which is declared here on type '{ chunkStarts?: number[] | undefined; language?: string | undefined; focusTopic?: string | undefined; audioStorageIds: Id<"_storage">[]; sourceId: Id<"videoSources">; }'
+
+
+Found 4 errors.
+

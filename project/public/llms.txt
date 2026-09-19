@@ -1,0 +1,49 @@
+# NoirOps
+
+NoirOps is an AI-powered content intelligence platform for creators and entrepreneurs.
+
+## What NoirOps Does
+
+- Discovers trending topics across social media platforms
+- Generates platform-optimized content (posts, captions, hooks, threads, ideas)
+- Creates content calendars
+- Repurposes content across platforms
+- Analyzes content performance with real data
+- Manages brand voice configurations
+- Provides AI-powered content recommendations
+
+## Target Users
+
+- Content creators
+- Entrepreneurs and founders
+- Small businesses
+- Social media managers
+
+## Platforms Supported
+
+Instagram, Twitter/X, LinkedIn, TikTok, YouTube, Facebook
+
+## Key Features
+
+- AI Content Engine with platform awareness
+- Brand Voice management
+- Content Calendar with drag-and-drop
+- Real-time analytics (not fabricated)
+- Content history with search, filter, and CRUD
+- Beta feedback system
+
+## Status
+
+Currently in beta. All features are free. No payment collection.
+
+## Contact
+
+Email: hello@noiroops.com
+Web: https://noiroops.com
+
+## Privacy
+
+- We do not sell user data
+- We do not use content to train AI models
+- All user data is encrypted in transit
+- See full privacy policy at https://noiroops.com/privacy

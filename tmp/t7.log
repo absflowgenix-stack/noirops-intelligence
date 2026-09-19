@@ -1,0 +1,9 @@
+[96msrc/pages/dashboard/VideoClips.tsx[0m:[93m112[0m:[93m33[0m - [91merror[0m[90m TS2551: [0mProperty 'videoClipping' does not exist on type '{ content: { list: FunctionReference<"query", "public", { status?: string | undefined; platform?: string | undefined; limit?: number | undefined; userId: string; }, { _id: Id<"content">; _creationTime: number; ... 14 more ...; userId: string; }[], string | undefined>; ... 5 more ...; stats: FunctionReference<...>; }...'. Did you mean 'videoClips'?
+
+[7m112[0m   const analyze = useAction(api.videoClipping.analyzeSource);
+[7m   [0m [91m                                ~~~~~~~~~~~~~[0m
+
+
+Found 1 error.
+
+exit=0
