@@ -1,7 +1,15 @@
+import { fileURLToPath } from "node:url";
 import { vlyPlugin } from "@vly-ai/integrations";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
+
+// Resolve project paths from this config file's location instead of
+// hardcoding them. Hardcoded absolute roots break any build that runs from a
+// different checkout directory (e.g. the deploy pipeline), while this works
+// identically everywhere.
+const projectRoot = fileURLToPath(new URL(".", import.meta.url));
+const srcDir = `${projectRoot}src`;
 
 // https://vite.dev/config/
 export default defineConfig({
@@ -15,7 +23,7 @@ export default defineConfig({
       // blew the transform deadline. The generated shim re-exports exactly
       // the icons the app imports from the same per-icon ESM files.
       // Regenerate after adding new icons:  node scripts/gen-lucide-shim.cjs
-      { find: /^lucide-react$/, replacement: "/project/src/lib/lucide-shim.js" },
+      { find: /^lucide-react$/, replacement: `${srcDir}/lib/lucide-shim.js` },
       // vlyPlugin() injects `import '@vly-ai/integrations';` into every page,
       // and that module imports the Vercel AI SDK (`ai`) and
       // `@ai-sdk/openai-compatible` at the top level. That dragged the whole
@@ -24,12 +32,12 @@ export default defineConfig({
       // instantiates VlyAI (AI runs in Convex "use node" actions, server-side),
       // so these tiny stubs satisfy the named imports and let Rollup drop the
       // rest. The screenshot listener and error reporting are unaffected.
-      { find: "ai", replacement: "/project/src/lib/ai-client-stub.ts" },
+      { find: "ai", replacement: `${srcDir}/lib/ai-client-stub.ts` },
       {
         find: "@ai-sdk/openai-compatible",
-        replacement: "/project/src/lib/openai-compatible-client-stub.ts",
+        replacement: `${srcDir}/lib/openai-compatible-client-stub.ts`,
       },
-      { find: "@", replacement: "/project/src" },
+      { find: "@", replacement: srcDir },
     ],
     // Force a single copy of React across all packages (including vlyPlugin).
     // Without this, @vly-ai/integrations can resolve its own React copy, which
