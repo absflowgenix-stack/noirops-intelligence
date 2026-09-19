@@ -1,7 +1,7 @@
 {
   "dependencies": {
     "@vly-ai/integrations": "^0.6.13",
-    "convex": "1.46.0",
+    "convex": "^1.46.0",
     "tsc": "^2.0.4"
   }
 }
